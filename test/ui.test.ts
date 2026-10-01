@@ -20,7 +20,6 @@ interface UiHarness {
   agent: PaperAgent;
   agentReady: boolean;
   busy: boolean;
-  status: string;
   messages: { role: string; text: string }[];
   conversationOffset: number;
   terminal: { columns: number; rows: number; write(data: string): void };
@@ -119,8 +118,7 @@ test("configuration errors are visible and the next command remains usable", asy
   ui.input.setValue("/thinking invalid");
   await ui.submit();
   assert.equal(ui.busy, false);
-  assert.equal(ui.status, "Unsupported thinking level");
-  assert.equal(ui.messages.at(-1)?.text, ui.status);
+  assert.equal(ui.messages.at(-1)?.text, "Unsupported thinking level");
 });
 
 test("unknown slash commands are reported without reaching the agent", async (t) => {
@@ -209,23 +207,19 @@ test("picker renders in the conversation pane, survives full redraws, and restor
   assert.ok(output.includes("Previous question"));
 });
 
-test("status bar shows only model, thinking level, and cost, with no footer hints", (t) => {
+test("prompt bar shows only model, thinking level, and cost, with no footer hints", (t) => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
   const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
   let output = "";
   Object.defineProperties(ui.terminal, { columns: { value: 140 }, rows: { value: 30 } });
   t.mock.method(ui.terminal, "write", (data: string) => { output += data; });
   t.mock.getter(ui.agent, "summary", () => "model · high · $0.1234");
-  for (const status of ["Ready", "Rendering…", "Working…"]) {
-    output = "";
-    ui.status = status;
-    ui.renderPrompt();
-    assert.ok(output.includes("model · high · $0.1234"));
-    for (const hidden of [status, "provider/", "tokens", "PgUp", "/model", "quit"]) {
-      assert.ok(!output.includes(hidden), `Unexpected text: ${hidden}`);
-    }
-    assert.ok(output.includes(`└${"─".repeat(138)}┘`));
+  ui.renderPrompt();
+  assert.ok(output.includes("model · high · $0.1234"));
+  for (const hidden of ["provider/", "tokens", "PgUp", "/model", "quit"]) {
+    assert.ok(!output.includes(hidden), `Unexpected text: ${hidden}`);
   }
+  assert.ok(output.includes(`└${"─".repeat(138)}┘`));
 });
 
 test("/help lists commands and keybindings locally without an agent or rendered PDF", async (t) => {

@@ -59,7 +59,6 @@ export class PaperUi {
   private busy = false;
   private agentReady = false;
   private agentError?: string;
-  private status = "Starting agent…";
   private stopped = false;
   private resolveRun?: () => void;
 
@@ -94,10 +93,8 @@ export class PaperUi {
     const [agentResult] = await Promise.allSettled([this.agent.start(), this.refreshImage()]);
     this.busy = false;
     if (this.stopped) return completion;
-    if (agentResult.status === "fulfilled") {
-      this.agentReady = true;
-      this.status = "Ready";
-    } else this.agentFailed(agentResult.reason);
+    if (agentResult.status === "fulfilled") this.agentReady = true;
+    else this.agentFailed(agentResult.reason);
     this.renderFull();
 
     return completion;
@@ -160,12 +157,12 @@ export class PaperUi {
     }
 
     if (matchesKey(data, Key.ctrl("c"))) {
-      if (this.busy) this.stopResponse();
+      if (this.busy) this.agent.abort();
       else this.stop();
       return;
     }
     if (matchesKey(data, Key.escape) && this.busy) {
-      this.stopResponse();
+      this.agent.abort();
       return;
     }
     if (matchesKey(data, Key.ctrl("pageUp"))) {
@@ -204,12 +201,6 @@ export class PaperUi {
     this.renderPrompt();
   }
 
-  private stopResponse(): void {
-    this.agent.abort();
-    this.status = "Stopping response…";
-    this.renderPrompt();
-  }
-
   private scrollPdf(direction: number): void {
     const amount = Math.max(1, Math.floor(this.dimensions.contentRows * this.cellHeight / 2));
     if (this.pdf.scroll(direction * amount, this.dimensions.contentRows * this.cellHeight)) this.rerenderPdf();
@@ -220,7 +211,6 @@ export class PaperUi {
   }
 
   private rerenderPdf(): void {
-    this.status = "Rendering…";
     this.imageCurrent = false;
     this.renderFull();
     void this.refreshImage();
@@ -249,12 +239,11 @@ export class PaperUi {
       if (generation !== this.renderGeneration || this.stopped) return;
       this.image = image;
       this.imageCurrent = true;
-      this.status = this.busy ? "Working…" : this.agentReady ? "Ready" : (this.agentError ?? "Starting agent…");
       this.renderFull();
     } catch (error) {
       if (generation !== this.renderGeneration || this.stopped) return;
       this.imageCurrent = false;
-      this.showStatus(this.errorMessage(error));
+      this.notify(this.errorMessage(error));
       this.renderFull();
     }
   }
@@ -282,7 +271,6 @@ export class PaperUi {
 
     if (question === "/clear") {
       this.busy = true;
-      this.status = "Clearing conversation…";
       try {
         await this.resetConversation();
       } finally {
@@ -293,12 +281,12 @@ export class PaperUi {
     }
 
     if (!this.agentReady) {
-      this.showStatus(this.agentError ?? "Agent unavailable; use /model or authenticate with pi /login");
+      this.notify(this.agentError ?? "Agent unavailable; use /model or authenticate with pi /login");
       this.renderRight();
       return;
     }
     if (!this.image || !this.imageCurrent) {
-      this.showStatus("Wait for the PDF section to finish rendering");
+      this.notify("Wait for the PDF section to finish rendering");
       this.renderRight();
       return;
     }
@@ -306,7 +294,6 @@ export class PaperUi {
     this.messages.push({ role: "You", text: question }, { role: "Agent", text: "" });
     this.conversationOffset = 0;
     this.busy = true;
-    this.status = "Agent is thinking…";
     this.renderRight();
     this.renderPrompt();
     const location = Math.round(100 * this.pdf.y / Math.max(1, this.pdf.pageHeight));
@@ -314,11 +301,9 @@ export class PaperUi {
     try {
       await this.agent.ask(question, this.image.pngBase64, context);
       if (!this.messages.at(-1)?.text) this.messages.at(-1)!.text = "No response was returned.";
-      this.status = "Ready";
     } catch (error) {
       const message = this.messages.at(-1);
       if (message) message.text += `${message.text ? "\n\n" : ""}Error: ${this.errorMessage(error)}`;
-      this.status = "Ready";
     } finally {
       this.busy = false;
       this.renderRight();
@@ -338,7 +323,6 @@ export class PaperUi {
       }
       this.agentReady = true;
       this.agentError = undefined;
-      this.status = "Ready";
     } catch (error) {
       if (this.stopped) return;
       this.agentFailed(error);
@@ -356,7 +340,7 @@ export class PaperUi {
     }
 
     this.busy = true;
-    this.showStatus(`Loading ${argument}…`);
+    this.notify(`Loading ${argument}…`);
     this.renderRight();
     let paper: LoadedPaper | undefined;
     let committed = false;
@@ -375,12 +359,11 @@ export class PaperUi {
       this.imageCurrent = true;
       committed = true;
       this.terminal.setTitle(`pi paper — ${this.title}`);
-      this.status = "Starting agent…";
       await this.resetConversation();
       await this.papers.release(previousPdf);
     } catch (error) {
       if (this.stopped) return;
-      this.showStatus(this.errorMessage(error));
+      this.notify(this.errorMessage(error));
     } finally {
       if (paper && !committed) await this.papers.release(paper.pdf);
       this.busy = false;
@@ -390,7 +373,6 @@ export class PaperUi {
 
   private async configureAgent(command: string): Promise<void> {
     this.busy = true;
-    this.status = "Configuring agent…";
     this.renderPrompt();
     try {
       const [name, ...args] = command.trim().split(/\s+/);
@@ -404,9 +386,8 @@ export class PaperUi {
         return;
       }
       this.notify(await this.agent.select(name, matches[0]?.value ?? query));
-      this.status = this.idleStatus;
     } catch (error) {
-      this.showStatus(this.errorMessage(error));
+      this.notify(this.errorMessage(error));
     } finally {
       this.agentReady = this.agent.ready;
       if (this.agentReady) this.agentError = undefined;
@@ -419,7 +400,6 @@ export class PaperUi {
     this.selectionCommand = command;
     const close = () => {
       this.picker = undefined;
-      this.status = this.idleStatus;
     };
     this.picker = new SelectionPicker(options, query, (value) => {
       close();
@@ -427,24 +407,15 @@ export class PaperUi {
     }, close);
   }
 
-  private get idleStatus(): string {
-    return this.agent.ready ? "Ready" : (this.agentError ?? "Select a vision model with /model");
-  }
-
   private notify(text: string): void {
     this.messages.push({ role: "App", text });
     this.conversationOffset = 0;
   }
 
-  private showStatus(text: string): void {
-    this.status = text;
-    this.notify(text);
-  }
-
   private agentFailed(error: unknown): void {
     this.agentReady = false;
     this.agentError = `Agent unavailable: ${this.errorMessage(error)}`;
-    this.showStatus(this.agentError);
+    this.notify(this.agentError);
   }
 
   private get rightTitle(): string {
