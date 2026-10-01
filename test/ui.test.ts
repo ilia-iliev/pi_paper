@@ -3,7 +3,8 @@ import test from "node:test";
 import { stripVTControlCharacters } from "node:util";
 import { isKittyProtocolActive, setKittyProtocolActive, visibleWidth, type Input } from "@earendil-works/pi-tui";
 import { PaperAgent } from "../src/agent.js";
-import { PdfDocument } from "../src/pdf.js";
+import { PdfDocument, type PdfPosition } from "../src/pdf.js";
+import type { PaperState } from "../src/paper-state.js";
 import { PaperUi } from "../src/ui.js";
 import { renderInputLine, type SelectionPicker } from "../src/selection.js";
 
@@ -23,6 +24,12 @@ interface UiHarness {
   messages: { role: string; text: string }[];
   conversationOffset: number;
   terminal: { columns: number; rows: number; write(data: string): void };
+  state: PaperState;
+}
+
+function paperUi(pdf: PdfDocument) {
+  const state = { sessionPath: "unused", savePosition: async () => {} } as unknown as PaperState;
+  return new PaperUi({ source: { label: "Paper" }, pdf, state });
 }
 
 const zoomShortcuts = [
@@ -44,7 +51,7 @@ for (const kittyActive of [false, true]) {
       t.after(() => setKittyProtocolActive(previousMode));
       setKittyProtocolActive(kittyActive);
       const pdf = new PdfDocument("unused", { pages: 2, widthPoints: 600, heightPoints: 800 });
-      const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+      const ui = paperUi(pdf) as unknown as UiHarness;
       const renderedZooms: number[] = [];
       t.mock.method(ui.terminal, "write", () => {});
       t.mock.method(ui, "renderPrompt", () => {});
@@ -61,9 +68,24 @@ for (const kittyActive of [false, true]) {
   }
 }
 
+test("scrolling and zooming save the paper position", (t) => {
+  const pdf = new PdfDocument("unused", { pages: 2, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness;
+  t.mock.method(ui.terminal, "write", () => {});
+  t.mock.method(ui, "refreshImage", async () => {});
+  const save = t.mock.method(ui.state, "savePosition", async () => {});
+  ui.handleInput("\x1b[6~");
+  ui.handleInput("\x1b+");
+  const [scrolled, zoomed] = save.mock.calls.map((call) => call.arguments[0] as PdfPosition);
+  assert.equal(save.mock.callCount(), 2);
+  assert.ok(scrolled!.y > 0 && scrolled!.zoom === 100);
+  assert.deepEqual(zoomed, pdf.position);
+  assert.equal(zoomed!.zoom, 125);
+});
+
 test("zoom ignores Kitty key releases but accepts repeats", (t) => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   t.mock.method(ui.terminal, "write", () => {});
   t.mock.method(ui, "refreshImage", async () => {});
   ui.handleInput("\x1b[43;3:1u");
@@ -80,14 +102,14 @@ test("zoom ignores Kitty key releases but accepts repeats", (t) => {
 
 test("question input has no prompt of its own beside the frame's marker", () => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   ui.input.setValue("hi");
   assert.equal(stripVTControlCharacters(renderInputLine(ui.input, 20).text).trimEnd(), "hi");
 });
 
 test("unmodified plus and minus remain available in questions", (t) => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   t.mock.method(ui, "renderPrompt", () => {});
   ui.handleInput("+");
   ui.handleInput("-");
@@ -98,7 +120,7 @@ test("unmodified plus and minus remain available in questions", (t) => {
 for (const command of ["/model provider/model", "/thinking high"]) {
   test(`${command} is handled locally without requiring a rendered PDF`, async (t) => {
     const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-    const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+    const ui = paperUi(pdf) as unknown as UiHarness;
     t.mock.method(ui, "renderPrompt", () => {});
     t.mock.method(ui, "renderRight", () => {});
     t.mock.method(ui.agent, "getSelection", async () => ({ items: [{ value: command.split(" ")[1], label: command.split(" ")[1] }] }));
@@ -117,7 +139,7 @@ for (const command of ["/model provider/model", "/thinking high"]) {
 
 test("configuration errors are visible and the next command remains usable", async (t) => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   t.mock.method(ui, "renderPrompt", () => {});
   t.mock.method(ui, "renderRight", () => {});
   t.mock.method(ui.agent, "getSelection", async () => ({ items: [{ value: "high", label: "high" }] }));
@@ -130,7 +152,7 @@ test("configuration errors are visible and the next command remains usable", asy
 
 test("unknown slash commands are reported without reaching the agent", async (t) => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   t.mock.method(ui, "renderPrompt", () => {});
   t.mock.method(ui, "renderRight", () => {});
   const select = t.mock.method(ui.agent, "select", async () => "Configured");
@@ -143,7 +165,7 @@ test("unknown slash commands are reported without reaching the agent", async (t)
 for (const command of ["/model", "/thinking", "/model sol"]) {
   test(`${command} opens a searchable picker without changing settings or chat`, async (t) => {
     const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-    const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+    const ui = paperUi(pdf) as unknown as UiHarness;
     t.mock.method(ui, "renderPrompt", () => {});
     t.mock.method(ui, "renderRight", () => {});
     const items = command.startsWith("/model")
@@ -173,7 +195,7 @@ for (const command of ["/model", "/thinking", "/model sol"]) {
 for (const cancel of ["\x1b", "\x03"]) {
   test("picker cancellation restores conversation without saving or quitting", async (t) => {
     const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-    const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+    const ui = paperUi(pdf) as unknown as UiHarness;
     t.mock.method(ui, "renderPrompt", () => {});
     t.mock.method(ui, "renderRight", () => {});
     t.mock.method(ui.agent, "getSelection", async () => ({ items: [{ value: "high", label: "high" }] }));
@@ -189,7 +211,7 @@ for (const cancel of ["\x1b", "\x03"]) {
 
 test("picker renders in the conversation pane, survives full redraws, and restores chat on cancel", async (t) => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   let output = "";
   Object.defineProperties(ui.terminal, { columns: { value: 140 }, rows: { value: 30 } });
   t.mock.method(ui.terminal, "write", (data: string) => { output += data; });
@@ -216,7 +238,7 @@ test("picker renders in the conversation pane, survives full redraws, and restor
 
 test("prompt bar shows only model, thinking level, and cost, with no footer hints", (t) => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   let output = "";
   Object.defineProperties(ui.terminal, { columns: { value: 140 }, rows: { value: 30 } });
   t.mock.method(ui.terminal, "write", (data: string) => { output += data; });
@@ -231,7 +253,7 @@ test("prompt bar shows only model, thinking level, and cost, with no footer hint
 
 test("/help lists commands and keybindings locally without an agent or rendered PDF", async (t) => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   const render = t.mock.method(ui, "renderRight", () => {});
   t.mock.method(ui, "renderPrompt", () => {});
   const select = t.mock.method(ui.agent, "select", async () => "Configured");
@@ -256,7 +278,7 @@ test("/help lists commands and keybindings locally without an agent or rendered 
 
 test("agent responses render Markdown and inline/display formulas instead of raw syntax", () => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   Object.defineProperties(ui.terminal, { columns: { value: 220 }, rows: { value: 40 } });
   const source = String.raw`**Embed each token:** use \(d_{\text{model}}=512\).
 
@@ -285,7 +307,7 @@ $$\frac{1}{2}$$`;
 
 test("tables align cells and wrap within the conversation pane after resize", () => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   let columns = 220;
   Object.defineProperties(ui.terminal, { columns: { get: () => columns }, rows: { value: 40 } });
   ui.messages.push({ role: "Agent", text: String.raw`| Position \(i\) | Token | Token ID | Embedding \(e_i\) | Positional encoding \(p_i\) | Encoder input \(x_i=e_i+p_i\) |
@@ -310,7 +332,7 @@ test("tables align cells and wrap within the conversation pane after resize", ()
 
 test("streamed responses re-render when math and table syntax becomes complete", () => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   Object.defineProperties(ui.terminal, { columns: { value: 180 }, rows: { value: 40 } });
   const message = { role: "Agent", text: String.raw`Input \(x_i` };
   ui.messages.push(message);
@@ -328,7 +350,7 @@ test("streamed responses re-render when math and table syntax becomes complete",
 
 test("questions and app messages remain literal text, and code is not interpreted as math", () => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  const ui = paperUi(pdf) as unknown as UiHarness;
   Object.defineProperties(ui.terminal, { columns: { value: 220 }, rows: { value: 40 } });
   ui.messages.push(
     { role: "You", text: String.raw`Explain **this** and \(x_i\)` },

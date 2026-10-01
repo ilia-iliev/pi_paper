@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import test, { type TestContext } from "node:test";
 import { PdfDocument, type RenderedSection } from "../src/pdf.js";
+import type { PaperState } from "../src/paper-state.js";
 import { PaperUi } from "../src/ui.js";
 
 interface Harness {
@@ -22,7 +23,7 @@ const image: RenderedSection = { sixel: "SIXEL", leftCells: 0, png: () => "" };
 
 function fixture(t: TestContext) {
   const pdf = new PdfDocument("unused", { pages: 3, widthPoints: 600, heightPoints: 800 });
-  const ui = new PaperUi(pdf, "Paper") as unknown as Harness;
+  const ui = new PaperUi({ pdf, source: { label: "Paper" }, state: { sessionPath: "unused", savePosition: async () => {} } as unknown as PaperState }) as unknown as Harness;
   const writes: string[] = [];
   t.mock.method(ui.terminal, "write", (data: string) => { writes.push(data); });
   return { pdf, ui, writes };

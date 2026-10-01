@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { PaperLibrary } from "../src/paper.js";
+import type { PaperState } from "../src/paper-state.js";
 import { PdfDocument, type RenderedSection } from "../src/pdf.js";
 import { PaperUi } from "../src/ui.js";
 import type { Input } from "@earendil-works/pi-tui";
@@ -27,6 +28,10 @@ interface Harness {
   terminal: { setTitle(title: string): void };
 }
 
+function paperState(sessionPath: string): PaperState {
+  return { sessionPath, savePosition: async () => {} } as unknown as PaperState;
+}
+
 const image: RenderedSection = { sixel: "new", leftCells: 0, png: () => "new-image" };
 
 function fixture(t: TestContext) {
@@ -35,9 +40,9 @@ function fixture(t: TestContext) {
   oldPdf.y = 200;
   oldPdf.zoom = 150;
   const pdf = new PdfDocument("new.pdf", { pages: 10, widthPoints: 600, heightPoints: 800 });
-  const paper = { pdf, source: { label: "New Paper", url: "https://arxiv.org/pdf/1706.03762.pdf" } };
+  const paper = { pdf, source: { label: "New Paper", url: "https://arxiv.org/pdf/1706.03762.pdf" }, state: paperState("new.jsonl") };
   const library = new PaperLibrary();
-  const ui = new PaperUi(oldPdf, "Old Paper", library) as unknown as Harness;
+  const ui = new PaperUi({ pdf: oldPdf, source: { label: "Old Paper" }, state: paperState("old.jsonl") }, library) as unknown as Harness;
   t.mock.method(ui, "renderFull", () => {});
   t.mock.method(ui, "renderRight", () => {});
   t.mock.method(ui, "renderPrompt", () => {});
@@ -46,6 +51,7 @@ function fixture(t: TestContext) {
   const remember = t.mock.method(library, "remember", async () => {});
   const release = t.mock.method(library, "release", async () => {});
   const reset = t.mock.method(ui.agent, "reset", async () => {});
+  const agentOpen = t.mock.method(ui.agent, "open", async () => {});
   const select = t.mock.method(ui.agent, "select", async () => "Configured");
   const ask = t.mock.method(ui.agent, "ask", async () => {});
   t.mock.method(pdf, "render", async () => image);
@@ -54,7 +60,7 @@ function fixture(t: TestContext) {
   ui.agentReady = true;
   ui.image = { ...image, png: () => "old-image" };
   ui.imageCurrent = true;
-  return { ui, library, oldPdf, paper, open, remember, release, reset, select, ask, setTitle };
+  return { ui, library, oldPdf, paper, open, remember, release, reset, agentOpen, select, ask, setTitle };
 }
 
 for (const input of ['/new "Attention Is All You Need"', "/new Attention Is All You Need", "/new 'Attention Is All You Need'"]) {
@@ -71,7 +77,8 @@ for (const input of ['/new "Attention Is All You Need"', "/new Attention Is All 
     assert.equal(f.ui.conversationOffset, 0);
     assert.equal(f.ui.image?.png(), "new-image");
     assert.equal(f.ui.imageCurrent, true);
-    assert.equal(f.reset.mock.callCount(), 1);
+    assert.deepEqual(f.agentOpen.mock.calls[0].arguments, ["new.jsonl"]);
+    assert.equal(f.reset.mock.callCount(), 0);
     assert.equal(f.select.mock.callCount(), 0);
     assert.equal(f.ask.mock.callCount(), 0);
     assert.equal(f.remember.mock.calls[0].arguments[0], f.paper);
@@ -88,7 +95,7 @@ for (const input of ["/new", '/new ""', '/new "unterminated']) {
     f.ui.input.setValue(input);
     await f.ui.submit();
     assert.equal(f.open.mock.callCount(), 0);
-    assert.equal(f.reset.mock.callCount(), 0);
+    assert.equal(f.agentOpen.mock.callCount(), 0);
     assert.equal(f.ui.pdf, f.oldPdf);
     assert.equal(f.ui.messages[0].text, "Old context");
     assert.match(f.ui.messages.at(-1)!.text, /Usage: \/new/);
@@ -110,7 +117,7 @@ for (const failure of ["open", "render", "remember"] as const) {
     assert.equal(f.ui.imageCurrent, true);
     assert.equal(f.ui.messages[0].text, "Old context");
     assert.match(f.ui.messages.at(-1)!.text, new RegExp(`Failed ${failure}`));
-    assert.equal(f.reset.mock.callCount(), 0);
+    assert.equal(f.agentOpen.mock.callCount(), 0);
     assert.equal(f.ui.busy, false);
     if (failure === "render") assert.equal(f.remember.mock.callCount(), 0);
     if (failure !== "open") assert.equal(f.release.mock.calls[0].arguments[0], f.paper.pdf);
@@ -120,7 +127,7 @@ for (const failure of ["open", "render", "remember"] as const) {
 test("agent restart failure still opens the paper with fresh context and permits recovery", async (t) => {
   const f = fixture(t);
   f.ui.agentReady = false;
-  t.mock.method(f.ui.agent, "reset", async () => { throw new Error("No authentication"); });
+  t.mock.method(f.ui.agent, "open", async () => { throw new Error("No authentication"); });
   f.ui.input.setValue("/new 1706.03762");
   await f.ui.submit();
   assert.equal(f.ui.pdf, f.paper.pdf);
@@ -153,7 +160,7 @@ test("closing during lookup releases the pending paper without changing history 
   finish(f.paper);
   await pending;
   assert.equal(f.ui.pdf, f.oldPdf);
-  assert.equal(f.reset.mock.callCount(), 0);
+  assert.equal(f.agentOpen.mock.callCount(), 0);
   assert.equal(f.remember.mock.callCount(), 0);
   assert.equal(f.release.mock.calls[0].arguments[0], f.paper.pdf);
 });
@@ -189,5 +196,13 @@ test("/new cannot start a second load while busy", async (t) => {
   f.ui.input.setValue("/new new paper");
   await f.ui.submit();
   assert.equal(f.open.mock.callCount(), 0);
-  assert.equal(f.reset.mock.callCount(), 0);
+  assert.equal(f.agentOpen.mock.callCount(), 0);
+});
+
+test("/new shows the new paper's saved conversation", async (t) => {
+  const f = fixture(t);
+  t.mock.getter(f.ui.agent, "history", () => [{ role: "You", text: "Saved question" }, { role: "Agent", text: "Saved answer" }]);
+  f.ui.input.setValue("/new new paper");
+  await f.ui.submit();
+  assert.deepEqual(f.ui.messages, [{ role: "You", text: "Saved question" }, { role: "Agent", text: "Saved answer" }]);
 });

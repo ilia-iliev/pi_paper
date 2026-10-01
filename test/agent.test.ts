@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,7 +37,7 @@ async function agentFixture(t: TestContext, defaults: PaperDefaults = {}) {
   const agent = new PaperAgent({ onDelta() {} });
   t.after(() => agent.dispose());
   const harness = agent as unknown as { session: AgentSession; validateVision(model: unknown): void };
-  return { agent, harness, vision, otherVision, text, global, saved };
+  return { agent, harness, vision, otherVision, text, global, saved, directory };
 }
 
 test("startup inherits Pi defaults but uses paper-specific thinking over Pi's per-model level", async (t) => {
@@ -137,4 +138,36 @@ test("cost includes SDK session totals and survives clearing the conversation", 
   assert.match(agent.summary, / · \$0\.1234$/);
   t.mock.method(harness.session, "getSessionStats", () => ({ cost: 0.01 }));
   assert.match(agent.summary, / · \$0\.1334$/);
+});
+
+function answer(session: AgentSession, question: string, reply: string): void {
+  const manager = session.sessionManager;
+  const model = session.model!;
+  manager.appendMessage({ role: "user", content: [{ type: "text", text: `Visible section: page 1.\n\nQuestion: ${question}` }], timestamp: Date.now() });
+  manager.appendMessage({
+    role: "assistant", content: [{ type: "text", text: reply }], api: model.api, provider: model.provider, model: model.id,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    stopReason: "stop", timestamp: Date.now(),
+  });
+}
+
+test("a paper session survives restarting and /clear deletes it", async (t) => {
+  const { agent, harness, directory } = await agentFixture(t);
+  const path = join(directory, "session.jsonl");
+  await agent.open(path);
+  answer(harness.session, "What is attention?", "A weighted average.");
+  agent.dispose();
+
+  const restored = new PaperAgent({ onDelta() {} });
+  t.after(() => restored.dispose());
+  await restored.open(path);
+  assert.deepEqual(restored.history, [
+    { role: "You", text: "What is attention?" },
+    { role: "Agent", text: "A weighted average." },
+  ]);
+  assert.equal((restored as unknown as { session: AgentSession }).session.messages.length, 2);
+
+  await restored.reset();
+  assert.deepEqual(restored.history, []);
+  assert.equal(existsSync(path), false);
 });

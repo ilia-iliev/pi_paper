@@ -34,7 +34,7 @@ async function main(): Promise<void> {
     const paper = await papers.open(argument, (source) => {
       if (!source.localPath) process.stderr.write(`Downloading ${source.label} (${source.url})…\n`);
     });
-    ui = new PaperUi(paper.pdf, paper.source.label, papers);
+    ui = new PaperUi(paper, papers);
     const stop = () => ui?.stop();
     process.once("SIGTERM", stop);
     process.once("SIGHUP", stop);

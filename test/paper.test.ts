@@ -84,3 +84,32 @@ for (const body of ["<html>not a PDF</html>", "%PDF-invalid"]) {
     assert.deepEqual(await history.source(), old);
   });
 }
+
+test("each paper reopens at its last saved position", async (t) => {
+  const { directory, library } = await fixture(t);
+  const path = join(directory, "local.pdf");
+  const other = join(directory, "other.pdf");
+  await writeFile(path, minimalPdf());
+  await writeFile(other, minimalPdf());
+  const paper = await library.open(path);
+  paper.pdf.y = 120;
+  paper.pdf.zoom = 150;
+  await paper.state.savePosition(paper.pdf.position);
+  const reopened = await library.open(path);
+  assert.deepEqual(reopened.pdf.position, { page: 1, y: 120, zoom: 150 });
+  assert.equal(reopened.state.sessionPath, paper.state.sessionPath);
+  const fresh = await library.open(other);
+  assert.deepEqual(fresh.pdf.position, { page: 1, y: 0, zoom: 100 });
+  assert.notEqual(fresh.state.sessionPath, paper.state.sessionPath);
+});
+
+test("a saved page beyond the end clamps and an invalid position fails visibly", async (t) => {
+  const { directory, library } = await fixture(t);
+  const path = join(directory, "local.pdf");
+  await writeFile(path, minimalPdf());
+  const paper = await library.open(path);
+  await paper.state.savePosition({ page: 9, y: 0, zoom: 100 });
+  assert.equal((await library.open(path)).pdf.page, 1);
+  await paper.state.savePosition({ page: 1, y: 0, zoom: 333 });
+  await assert.rejects(library.open(path), /Invalid saved position/);
+});

@@ -4,6 +4,7 @@ import { ConversationRenderer, type ConversationMessage } from "./conversation.j
 import { ESC, fullFrame, layout, leftTitleFrame, pdfTitle, promptFrame, rightFrame } from "./frame.js";
 import { PdfDocument, type RenderedSection } from "./pdf.js";
 import { PaperLibrary, type LoadedPaper } from "./paper.js";
+import type { PaperState } from "./paper-state.js";
 import { matchingItems, renderInputLine, SelectionPicker, type SelectionCommand, type SelectionOptions } from "./selection.js";
 import { HELP_TEXT } from "./help.js";
 
@@ -40,8 +41,14 @@ export class PaperUi {
   private agentError?: string;
   private stopped = false;
   private resolveRun?: () => void;
+  private pdf: PdfDocument;
+  private title: string;
+  private state: PaperState;
 
-  constructor(private pdf: PdfDocument, private title: string, private readonly papers = new PaperLibrary()) {
+  constructor(paper: LoadedPaper, private readonly papers = new PaperLibrary()) {
+    this.pdf = paper.pdf;
+    this.title = paper.source.label;
+    this.state = paper.state;
     this.input.focused = true;
     this.agent = new PaperAgent({
       onDelta: (delta) => {
@@ -71,12 +78,7 @@ export class PaperUi {
     this.busy = true;
     await this.measureCells();
     await this.refreshImage();
-    try {
-      await this.agent.start();
-      this.agentReady = true;
-    } catch (error) {
-      this.agentFailed(error);
-    }
+    await this.startConversation(() => this.agent.open(this.state.sessionPath));
     this.busy = false;
     if (this.stopped) return completion;
     this.renderRight();
@@ -194,6 +196,10 @@ export class PaperUi {
 
   /** Keeps the current image on screen until its replacement is ready. */
   private rerenderPdf(): void {
+    this.state.savePosition(this.pdf.position).catch((error: unknown) => {
+      this.notify(`Could not save position: ${this.errorMessage(error)}`);
+      this.renderRight();
+    });
     this.imageCurrent = false;
     this.terminal.write(leftTitleFrame(this.dimensions, this.pdfTitle) + this.promptFrame());
     void this.refreshImage();
@@ -266,7 +272,8 @@ export class PaperUi {
     if (question === "/clear") {
       this.busy = true;
       try {
-        await this.resetConversation();
+        this.clearConversation();
+        await this.startConversation(() => this.agent.reset());
       } finally {
         this.busy = false;
         this.renderRight();
@@ -305,18 +312,23 @@ export class PaperUi {
     }
   }
 
-  private async resetConversation(): Promise<void> {
+  private clearConversation(): void {
     this.messages.length = 0;
     this.conversationOffset = 0;
     this.renderRight();
+  }
+
+  /** Shows the restored conversation ahead of any notices raised while the agent started. */
+  private async startConversation(start: () => Promise<void>): Promise<void> {
     try {
-      await this.agent.reset();
+      await start();
       if (this.stopped) {
         this.agent.dispose();
         return;
       }
       this.agentReady = true;
       this.agentError = undefined;
+      this.messages.unshift(...this.agent.history);
     } catch (error) {
       if (this.stopped) return;
       this.agentFailed(error);
@@ -349,11 +361,13 @@ export class PaperUi {
       this.renderGeneration++;
       this.pdf = paper.pdf;
       this.title = paper.source.label;
+      this.state = paper.state;
       this.image = image;
       this.imageCurrent = true;
       committed = true;
       this.terminal.setTitle(`pi paper — ${this.title}`);
-      await this.resetConversation();
+      this.clearConversation();
+      await this.startConversation(() => this.agent.open(this.state.sessionPath));
       await this.papers.release(previousPdf);
     } catch (error) {
       if (this.stopped) return;

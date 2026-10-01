@@ -1,4 +1,6 @@
+import { rm } from "node:fs/promises";
 import type { AgentSession, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
+import type { ConversationMessage } from "./conversation.js";
 import type { SelectionCommand, SelectionOptions } from "./selection.js";
 import { PaperSettings, type ThinkingLevel } from "./settings.js";
 
@@ -7,6 +9,9 @@ const SYSTEM_PROMPT = `You are a patient research-paper reading companion. The u
 Use the attached image and the supplied page/location metadata as the immediate context. Explain notation, figures, arguments, and significance clearly. Relate the visible section to earlier turns when useful. Do not claim to see content outside the attached section. Be concise by default, but show intermediate reasoning for mathematical explanations. You have no coding task and need no tools.`;
 
 type PaperModel = NonNullable<AgentSession["model"]>;
+type SessionMessage = AgentSession["messages"][number];
+
+const QUESTION_MARKER = "\n\nQuestion: ";
 
 /** The SDK takes most of startup to import; load it alongside the paper instead of before it. */
 const loadSdk = () => import("@earendil-works/pi-coding-agent");
@@ -33,6 +38,21 @@ function modelItem(model: PaperModel) {
   return { value: `${model.provider}/${model.id}`, label: model.id, description: `[${model.provider}] ${model.name}` };
 }
 
+function contentText(content: string | readonly { type: string; text?: string }[]): string {
+  return typeof content === "string" ? content : content.map((part) => part.type === "text" ? part.text : "").join("");
+}
+
+function historyMessage(message: SessionMessage): ConversationMessage[] {
+  if (message.role === "user") {
+    const prompt = contentText(message.content);
+    return [{ role: "You", text: prompt.slice(prompt.indexOf(QUESTION_MARKER) + QUESTION_MARKER.length) }];
+  }
+  if (message.role !== "assistant") return [];
+  const text = contentText(message.content);
+  const error = message.errorMessage ? `Error: ${message.errorMessage}` : "";
+  return [{ role: "Agent", text: [text, error].filter(Boolean).join("\n\n") }];
+}
+
 interface AgentReplyEvents {
   onDelta(delta: string): void;
   onChange?(): void;
@@ -40,6 +60,7 @@ interface AgentReplyEvents {
 
 export class PaperAgent {
   private session?: AgentSession;
+  private sessionPath?: string;
   private unsubscribe?: () => void;
   private settingsManager?: SettingsManager;
   private modelRuntime?: ModelRuntime;
@@ -112,7 +133,7 @@ export class PaperAgent {
       modelRuntime: this.modelRuntime,
       settingsManager: this.settingsManager,
       resourceLoader: loader,
-      sessionManager: SessionManager.inMemory(),
+      sessionManager: this.sessionPath ? SessionManager.open(this.sessionPath) : SessionManager.inMemory(),
       noTools: "all",
     });
     this.session = result.session;
@@ -195,14 +216,27 @@ export class PaperAgent {
   async ask(question: string, pngBase64: string, context: string): Promise<void> {
     if (!this.session || !this.ready) throw new Error("Agent is not ready");
     this.validateVision(this.session.model);
-    await this.session.prompt(`${context}\n\nQuestion: ${question}`, {
+    await this.session.prompt(`${context}${QUESTION_MARKER}${question}`, {
       images: [{ type: "image", data: pngBase64, mimeType: "image/png" }],
       expandPromptTemplates: false,
     });
   }
 
+  /** The conversation restored from the session file, as displayed. */
+  get history(): ConversationMessage[] {
+    return (this.session?.messages ?? []).flatMap(historyMessage);
+  }
+
+  /** Continues the paper's saved session, or starts one that is saved as it grows. */
+  async open(sessionPath: string): Promise<void> {
+    this.dispose();
+    this.sessionPath = sessionPath;
+    await this.start();
+  }
+
   async reset(): Promise<void> {
     this.dispose();
+    if (this.sessionPath) await rm(this.sessionPath, { force: true });
     await this.start();
   }
 

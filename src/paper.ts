@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquirePaper, type PaperSource } from "./paper-source.js";
 import { PaperHistory } from "./history.js";
+import type { PaperState } from "./paper-state.js";
 import { inspectPdf, PdfDocument } from "./pdf.js";
 
 export interface LoadedPaper {
   source: PaperSource;
   pdf: PdfDocument;
+  state: PaperState;
 }
 
 async function validatePdf(path: string): Promise<void> {
@@ -37,8 +39,11 @@ export class PaperLibrary {
       await acquirePaper(source, path);
       await validatePdf(path);
       const pdf = new PdfDocument(path, await inspectPdf(path));
+      const state = this.history.state(source);
+      const position = await state.position();
+      if (position) pdf.restore(position);
       loaded = true;
-      return { source, pdf };
+      return { source, pdf, state };
     } finally {
       if (!loaded) await this.remove(path);
     }

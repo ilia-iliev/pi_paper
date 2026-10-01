@@ -11,6 +11,12 @@ interface PdfMetadata {
   heightPoints: number;
 }
 
+export interface PdfPosition {
+  page: number;
+  y: number;
+  zoom: number;
+}
+
 export interface RenderedSection {
   sixel: string;
   leftCells: number;
@@ -32,6 +38,20 @@ export class PdfDocument {
   zoom = 100;
 
   constructor(readonly path: string, readonly metadata: PdfMetadata) {}
+
+  get position(): PdfPosition {
+    return { page: this.page, y: this.y, zoom: this.zoom };
+  }
+
+  restore({ page, y, zoom }: PdfPosition): void {
+    if (!Number.isInteger(page) || page < 1 || !Number.isInteger(y) || y < 0
+      || !ZOOM_LEVELS.includes(zoom as (typeof ZOOM_LEVELS)[number])) {
+      throw new Error(`Invalid saved position: ${JSON.stringify({ page, y, zoom })}`);
+    }
+    this.page = Math.min(page, this.metadata.pages);
+    this.y = y;
+    this.zoom = zoom;
+  }
 
   get pageWidth(): number {
     return Math.ceil(this.metadata.widthPoints * this.zoom / 100);

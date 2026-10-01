@@ -1,11 +1,17 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { writePrivateFile } from "./files.js";
 import { parsePaperSource, resolvePaperSource, type PaperSource } from "./paper-source.js";
+import { PaperState } from "./paper-state.js";
 
 const DEFAULT_PAPER = "1706.03762";
+
+function location(source: PaperSource): string {
+  return source.localPath ?? source.url!;
+}
 
 export class PaperHistory {
   constructor(private readonly directory = join(
@@ -24,6 +30,11 @@ export class PaperHistory {
   }
 
   async remember(source: PaperSource): Promise<void> {
-    await writePrivateFile(this.path, `${source.localPath ?? source.url}\n`);
+    await writePrivateFile(this.path, `${location(source)}\n`);
+  }
+
+  state(source: PaperSource): PaperState {
+    const key = createHash("sha256").update(location(source)).digest("hex").slice(0, 16);
+    return new PaperState(join(this.directory, "papers", key));
   }
 }
