@@ -49,14 +49,6 @@ test("startup inherits Pi defaults but uses paper-specific thinking over Pi's pe
   assert.deepEqual(harness.session.getActiveToolNames(), []);
 });
 
-test("model list contains only authenticated vision models and does not save", async (t) => {
-  const { agent, vision, text, saved } = await agentFixture(t);
-  const list = await agent.configure("/model");
-  assert.ok(list.includes(`${vision.provider}/${vision.id}`));
-  assert.ok(!list.includes(`${text.provider}/${text.id}`));
-  assert.deepEqual(saved, []);
-});
-
 test("picker options include only vision models and supported thinking levels without saving", async (t) => {
   const { agent, harness, vision, text, saved } = await agentFixture(t);
   const models = await agent.getSelection("/model");
@@ -156,10 +148,9 @@ test("cost includes SDK session totals and survives clearing the conversation", 
   assert.match(agent.summary, / · \$0\.1334$/);
 });
 
-test("thinking query and unknown slash commands never save defaults", async (t) => {
+test("unknown slash commands never save defaults", async (t) => {
   const { agent, saved } = await agentFixture(t);
   await agent.start();
-  assert.match(await agent.configure("/thinking"), /Use \/thinking/);
   await assert.rejects(agent.configure("/unknown"), /Unknown command/);
   assert.deepEqual(saved, []);
 });

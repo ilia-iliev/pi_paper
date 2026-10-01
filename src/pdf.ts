@@ -5,9 +5,9 @@ import { encodePng } from "./png.js";
 import { run } from "./process.js";
 import { encodeSixel, parsePpm, type Raster } from "./sixel.js";
 
-export const ZOOM_LEVELS = [50, 75, 100, 125, 150, 175, 200, 225, 250] as const;
+const ZOOM_LEVELS = [50, 75, 100, 125, 150, 175, 200, 225, 250] as const;
 
-export interface PdfMetadata {
+interface PdfMetadata {
   pages: number;
   widthPoints: number;
   heightPoints: number;

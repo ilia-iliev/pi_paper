@@ -34,7 +34,7 @@ function modelItem(model: PaperModel) {
   return { value: `${model.provider}/${model.id}`, label: model.id, description: `[${model.provider}] ${model.name}` };
 }
 
-export interface AgentReplyEvents {
+interface AgentReplyEvents {
   onDelta(delta: string): void;
   onChange?(): void;
 }
@@ -152,11 +152,6 @@ export class PaperAgent {
     const value = args.join(" ");
     if (name === "/model") {
       const models = await this.modelRuntime!.getAvailable();
-      if (!value) {
-        const choices = models.filter((model) => model.input.includes("image"))
-          .map((model) => `${model.provider}/${model.id}`);
-        return `Use /model to search, or /model query to select a match (saved for pi-paper).\n\n${choices.join("\n") || "No vision models available; authenticate with pi /login."}`;
-      }
       const exact = models.find((model) => modelItem(model).value.toLowerCase() === value.toLowerCase());
       const matches = matchingItems(models.filter((model) => model.input.includes("image")).map(modelItem), value);
       if (!exact && matches.length > 1) throw new Error(`Multiple models match: ${value}. Use /model to choose one.`);
@@ -169,7 +164,6 @@ export class PaperAgent {
     } else if (name === "/thinking") {
       if (!this.session?.model) throw new Error("Select a model with /model first");
       const levels = this.session.getAvailableThinkingLevels();
-      if (!value) return `Thinking: ${this.session.thinkingLevel}. Use /thinking ${levels.join("|")} (saved for pi-paper).`;
       const matches = matchingItems(levels.map(thinkingItem), value);
       if (matches.length !== 1) throw new Error(`Unsupported thinking level. Choose: ${levels.join(", ")}`);
       this.session.setThinkingLevel(matches[0].value as ThinkingLevel);

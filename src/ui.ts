@@ -46,8 +46,6 @@ const color = {
   reset: `${ESC}[0m`,
   dim: `${ESC}[2m`,
   cyan: `${ESC}[36m`,
-  blue: `${ESC}[94m`,
-  red: `${ESC}[31m`,
 };
 
 const plain = (text: string) => text;
