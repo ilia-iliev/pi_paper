@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parsePaperSource } from "../src/arxiv.js";
+import { parsePaperSource } from "../src/paper-source.js";
 import { encodePng } from "../src/png.js";
 import { PdfDocument } from "../src/pdf.js";
-import { encodeSixel, parsePpm } from "../src/sixel.js";
+import { parsePpm } from "../src/ppm.js";
+import { encodeSixel } from "../src/sixel.js";
 
 test("normalizes arXiv abstract and PDF links", () => {
   assert.equal(parsePaperSource("https://arxiv.org/abs/2401.12345v2").url, "https://arxiv.org/pdf/2401.12345v2.pdf");
@@ -16,7 +17,7 @@ test("parses PPM and encodes PNG and sixel", () => {
   const ppm = Buffer.concat([Buffer.from("P6\n# sample\n2 1\n255\n"), Buffer.from([255, 0, 0, 0, 255, 0])]);
   const raster = parsePpm(ppm);
   assert.deepEqual({ width: raster.width, height: raster.height }, { width: 2, height: 1 });
-  assert.equal(encodePng(2, 1, raster.rgb).subarray(1, 4).toString(), "PNG");
+  assert.equal(encodePng(raster).subarray(1, 4).toString(), "PNG");
   const sixel = encodeSixel(raster);
   assert.ok(sixel.startsWith("\x1bP0;1;0q"));
   assert.ok(sixel.endsWith("\x1b\\"));

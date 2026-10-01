@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import test, { type TestContext } from "node:test";
-import { parsePaperSource } from "../src/arxiv.js";
+import { parsePaperSource } from "../src/paper-source.js";
 import { PaperHistory } from "../src/history.js";
 
 async function historyFixture(t: TestContext) {

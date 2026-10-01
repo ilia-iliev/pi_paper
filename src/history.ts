@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { writePrivateFile } from "./files.js";
-import { parsePaperSource, resolvePaperSource, type PaperSource } from "./arxiv.js";
+import { parsePaperSource, resolvePaperSource, type PaperSource } from "./paper-source.js";
 
 const DEFAULT_PAPER = "1706.03762";
 

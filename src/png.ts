@@ -1,4 +1,5 @@
 import { deflateSync } from "node:zlib";
+import type { Raster } from "./ppm.js";
 
 let crcTable: Uint32Array | undefined;
 
@@ -26,7 +27,7 @@ function chunk(type: string, data: Buffer): Buffer {
   return result;
 }
 
-export function encodePng(width: number, height: number, rgb: Buffer): Buffer {
+export function encodePng({ width, height, rgb }: Raster): Buffer {
   if (rgb.length !== width * height * 3) throw new Error("Invalid RGB buffer size");
   const rows = Buffer.allocUnsafe(height * (width * 3 + 1));
   for (let y = 0; y < height; y++) {

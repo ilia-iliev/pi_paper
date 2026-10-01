@@ -1,7 +1,7 @@
 import { mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquirePaper, type PaperSource } from "./arxiv.js";
+import { acquirePaper, type PaperSource } from "./paper-source.js";
 import { PaperHistory } from "./history.js";
 import { inspectPdf, PdfDocument } from "./pdf.js";
 

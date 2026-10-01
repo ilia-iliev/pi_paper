@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { resolvePaperSource } from "../src/arxiv.js";
+import { resolvePaperSource } from "../src/paper-source.js";
 
 function feed(papers: { id: string; title: string }[]): string {
   return `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">${papers.map(({ id, title }) =>

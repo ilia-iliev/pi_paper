@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodePng } from "./png.js";
 import { run } from "./process.js";
-import { encodeSixel, parsePpm, type Raster } from "./sixel.js";
+import { parsePpm } from "./ppm.js";
+import { encodeSixel } from "./sixel.js";
 
 const ZOOM_LEVELS = [50, 75, 100, 125, 150, 175, 200, 225, 250] as const;
 
@@ -87,8 +88,8 @@ export class PdfDocument {
         "-W", String(cropWidth), "-H", String(cropHeight),
         this.path, prefix,
       ]);
-      const raster: Raster = parsePpm(await readFile(`${prefix}.ppm`));
-      const png = encodePng(raster.width, raster.height, raster.rgb);
+      const raster = parsePpm(await readFile(`${prefix}.ppm`));
+      const png = encodePng(raster);
       return {
         sixel: encodeSixel(raster),
         pngBase64: png.toString("base64"),

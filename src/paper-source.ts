@@ -3,7 +3,7 @@ import { copyFile, stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { basename, resolve } from "node:path";
 import { httpGet } from "./http.js";
-import { searchArxiv } from "./paper-search.js";
+import { searchArxiv } from "./arxiv-search.js";
 
 const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z-]+)?\/\d{7})(?:v\d+)?$/i;
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
