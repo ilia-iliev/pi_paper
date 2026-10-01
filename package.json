@@ -12,7 +12,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
     "test": "tsx --test test/*.test.ts",
     "check": "npm run build && npm test",
     "bench": "tsx bench/stream.bench.ts && tsx bench/render.bench.ts",
