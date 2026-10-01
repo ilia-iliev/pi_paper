@@ -1,21 +1,5 @@
-import { deflateSync } from "node:zlib";
+import { crc32, deflateSync } from "node:zlib";
 import type { Raster } from "./ppm.js";
-
-let crcTable: Uint32Array | undefined;
-
-function crc32(data: Buffer): number {
-  if (!crcTable) {
-    crcTable = new Uint32Array(256);
-    for (let n = 0; n < 256; n++) {
-      let value = n;
-      for (let bit = 0; bit < 8; bit++) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
-      crcTable[n] = value >>> 0;
-    }
-  }
-  let crc = 0xffffffff;
-  for (const byte of data) crc = crcTable[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
 
 function chunk(type: string, data: Buffer): Buffer {
   const name = Buffer.from(type, "ascii");
@@ -23,7 +7,7 @@ function chunk(type: string, data: Buffer): Buffer {
   result.writeUInt32BE(data.length, 0);
   name.copy(result, 4);
   data.copy(result, 8);
-  result.writeUInt32BE(crc32(Buffer.concat([name, data])), data.length + 8);
+  result.writeUInt32BE(crc32(data, crc32(name)), data.length + 8);
   return result;
 }
 

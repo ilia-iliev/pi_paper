@@ -15,6 +15,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "tsx --test test/*.test.ts",
     "check": "npm run build && npm test",
+    "bench": "tsx bench/stream.bench.ts && tsx bench/render.bench.ts",
     "prepack": "npm run build"
   },
   "engines": {

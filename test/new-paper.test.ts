@@ -27,7 +27,7 @@ interface Harness {
   terminal: { setTitle(title: string): void };
 }
 
-const image: RenderedSection = { sixel: "new", pngBase64: "new-image", width: 1, height: 1, leftCells: 0 };
+const image: RenderedSection = { sixel: "new", leftCells: 0, png: () => "new-image" };
 
 function fixture(t: TestContext) {
   const oldPdf = new PdfDocument("old.pdf", { pages: 3, widthPoints: 600, heightPoints: 800 });
@@ -52,7 +52,7 @@ function fixture(t: TestContext) {
   ui.messages.push({ role: "You", text: "Old context" }, { role: "Agent", text: "Old answer" });
   ui.conversationOffset = 5;
   ui.agentReady = true;
-  ui.image = { ...image, pngBase64: "old-image" };
+  ui.image = { ...image, png: () => "old-image" };
   ui.imageCurrent = true;
   return { ui, library, oldPdf, paper, open, remember, release, reset, select, ask, setTitle };
 }
@@ -69,7 +69,7 @@ for (const input of ['/new "Attention Is All You Need"', "/new Attention Is All 
     assert.deepEqual(f.ui.messages, []);
     assert.equal(f.ui.input.getValue(), "");
     assert.equal(f.ui.conversationOffset, 0);
-    assert.equal(f.ui.image?.pngBase64, "new-image");
+    assert.equal(f.ui.image?.png(), "new-image");
     assert.equal(f.ui.imageCurrent, true);
     assert.equal(f.reset.mock.callCount(), 1);
     assert.equal(f.select.mock.callCount(), 0);
@@ -106,7 +106,7 @@ for (const failure of ["open", "render", "remember"] as const) {
     await f.ui.submit();
     assert.equal(f.ui.pdf, f.oldPdf);
     assert.equal(f.ui.title, "Old Paper");
-    assert.equal(f.ui.image?.pngBase64, "old-image");
+    assert.equal(f.ui.image?.png(), "old-image");
     assert.equal(f.ui.imageCurrent, true);
     assert.equal(f.ui.messages[0].text, "Old context");
     assert.match(f.ui.messages.at(-1)!.text, new RegExp(`Failed ${failure}`));
@@ -138,9 +138,9 @@ test("a render from the previous paper cannot overwrite the new image", async (t
   const pending = f.ui.refreshImage();
   f.ui.input.setValue("/new new paper");
   await f.ui.submit();
-  finish({ ...image, pngBase64: "stale-image" });
+  finish({ ...image, png: () => "stale-image" });
   await pending;
-  assert.equal(f.ui.image?.pngBase64, "new-image");
+  assert.equal(f.ui.image?.png(), "new-image");
 });
 
 test("closing during lookup releases the pending paper without changing history or restarting", async (t) => {
@@ -176,7 +176,7 @@ test("/clear still resets context without replacing the paper", async (t) => {
   f.ui.input.setValue("/clear");
   await f.ui.submit();
   assert.equal(f.ui.pdf, f.oldPdf);
-  assert.equal(f.ui.image?.pngBase64, "old-image");
+  assert.equal(f.ui.image?.png(), "old-image");
   assert.deepEqual(f.ui.messages, []);
   assert.equal(f.reset.mock.callCount(), 1);
   assert.equal(f.open.mock.callCount(), 0);

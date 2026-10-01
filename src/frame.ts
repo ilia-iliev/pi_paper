@@ -1,4 +1,4 @@
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 
 export const ESC = "\x1b";
 const color = {
@@ -7,7 +7,7 @@ const color = {
   cyan: `${ESC}[36m`,
 };
 
-export interface Layout {
+interface Layout {
   columns: number;
   mainHeight: number;
   leftWidth: number;
@@ -44,12 +44,15 @@ function borderSection(title: string, width: number): string {
 
 function rightCell(d: Layout, text: string): string {
   const width = d.rightInner - 1;
-  const clipped = truncateToWidth(text, width, "");
-  return `${color.dim}│${color.reset} ${clipped}${" ".repeat(Math.max(0, width - visibleWidth(clipped)))}${color.dim}│${color.reset}`;
+  return `${color.dim}│${color.reset} ${truncateToWidth(text, width, "", true)}${color.dim}│${color.reset}`;
 }
 
 export function pdfTitle(d: Layout, title: string, zoom: number, page: number, pages: number): string {
   return `PDF · ${truncate(title, Math.max(4, d.leftInner - 28))} · ${zoom}% · ${page}/${pages}`;
+}
+
+export function leftTitleFrame(d: Layout, title: string): string {
+  return `${ESC}[?25l${ESC}[H${color.dim}┌${borderSection(title, d.leftInner)}${color.reset}`;
 }
 
 export function fullFrame(d: Layout, leftTitle: string, rightTitle: string, right: string[]): string {

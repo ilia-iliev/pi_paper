@@ -1,12 +1,4 @@
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  getAgentDir,
-  ModelRuntime,
-  SessionManager,
-  SettingsManager,
-  type AgentSession,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { SelectionCommand, SelectionOptions } from "./selection.js";
 import { PaperSettings, type ThinkingLevel } from "./settings.js";
 
@@ -15,6 +7,9 @@ const SYSTEM_PROMPT = `You are a patient research-paper reading companion. The u
 Use the attached image and the supplied page/location metadata as the immediate context. Explain notation, figures, arguments, and significance clearly. Relate the visible section to earlier turns when useful. Do not claim to see content outside the attached section. Be concise by default, but show intermediate reasoning for mathematical explanations. You have no coding task and need no tools.`;
 
 type PaperModel = NonNullable<AgentSession["model"]>;
+
+/** The SDK takes most of startup to import; load it alongside the paper instead of before it. */
+const loadSdk = () => import("@earendil-works/pi-coding-agent");
 
 const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
   off: "No reasoning",
@@ -63,7 +58,7 @@ export class PaperAgent {
 
   private async initialize(): Promise<void> {
     if (this.settingsManager && this.modelRuntime) return;
-    const defaults = await this.settings.load();
+    const [{ getAgentDir, ModelRuntime, SettingsManager }, defaults] = await Promise.all([loadSdk(), this.settings.load()]);
     const piSettings = SettingsManager.create(process.cwd(), getAgentDir());
     const errors = piSettings.drainErrors();
     if (errors.length) throw new Error(errors.map(({ error }) => error.message).join("; "));
@@ -96,6 +91,7 @@ export class PaperAgent {
   }
 
   private async createSession(model?: PaperModel): Promise<void> {
+    const { createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager } = await loadSdk();
     const cwd = process.cwd();
     const loader = new DefaultResourceLoader({
       cwd,

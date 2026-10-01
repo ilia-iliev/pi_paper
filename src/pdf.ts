@@ -1,6 +1,3 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { encodePng } from "./png.js";
 import { run } from "./process.js";
 import { parsePpm } from "./ppm.js";
@@ -16,10 +13,9 @@ interface PdfMetadata {
 
 export interface RenderedSection {
   sixel: string;
-  pngBase64: string;
-  width: number;
-  height: number;
   leftCells: number;
+  /** Base64 PNG, encoded on demand: only questions need it. */
+  png(): string;
 }
 
 export async function inspectPdf(path: string): Promise<PdfMetadata> {
@@ -78,27 +74,17 @@ export class PdfDocument {
     const cropWidth = Math.max(1, Math.min(pageWidth, viewportWidth));
     const cropHeight = Math.max(1, Math.min(pageHeight - this.y, viewportHeight));
     const cropX = Math.max(0, Math.floor((pageWidth - cropWidth) / 2));
-    const work = await mkdtemp(join(tmpdir(), "pi-paper-render-"));
-    const prefix = join(work, "section");
-    try {
-      await run("pdftoppm", [
-        "-f", String(this.page), "-l", String(this.page), "-singlefile",
-        "-r", String(72 * this.zoom / 100),
-        "-x", String(cropX), "-y", String(this.y),
-        "-W", String(cropWidth), "-H", String(cropHeight),
-        this.path, prefix,
-      ]);
-      const raster = parsePpm(await readFile(`${prefix}.ppm`));
-      const png = encodePng(raster);
-      return {
-        sixel: encodeSixel(raster),
-        pngBase64: png.toString("base64"),
-        width: raster.width,
-        height: raster.height,
-        leftCells: Math.max(0, Math.floor((viewportWidth - raster.width) / (2 * cellWidth))),
-      };
-    } finally {
-      await rm(work, { recursive: true, force: true });
-    }
+    const raster = parsePpm(await run("pdftoppm", [
+      "-f", String(this.page), "-l", String(this.page), "-singlefile",
+      "-r", String(72 * this.zoom / 100),
+      "-x", String(cropX), "-y", String(this.y),
+      "-W", String(cropWidth), "-H", String(cropHeight),
+      this.path,
+    ]));
+    return {
+      sixel: encodeSixel(raster),
+      leftCells: Math.max(0, Math.floor((viewportWidth - raster.width) / (2 * cellWidth))),
+      png: () => encodePng(raster).toString("base64"),
+    };
   }
 }

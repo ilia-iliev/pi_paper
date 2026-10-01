@@ -46,7 +46,7 @@ for (const kittyActive of [false, true]) {
       const pdf = new PdfDocument("unused", { pages: 2, widthPoints: 600, heightPoints: 800 });
       const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
       const renderedZooms: number[] = [];
-      t.mock.method(ui, "renderFull", () => {});
+      t.mock.method(ui.terminal, "write", () => {});
       t.mock.method(ui, "renderPrompt", () => {});
       t.mock.method(ui, "refreshImage", async () => { renderedZooms.push(pdf.zoom); });
 
@@ -64,7 +64,7 @@ for (const kittyActive of [false, true]) {
 test("zoom ignores Kitty key releases but accepts repeats", (t) => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
   const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
-  t.mock.method(ui, "renderFull", () => {});
+  t.mock.method(ui.terminal, "write", () => {});
   t.mock.method(ui, "refreshImage", async () => {});
   ui.handleInput("\x1b[43;3:1u");
   assert.equal(pdf.zoom, 125);

@@ -1,7 +1,7 @@
 import { Input, isKeyRelease, Key, matchesKey, parseKey, ProcessTerminal } from "@earendil-works/pi-tui";
 import { PaperAgent } from "./agent.js";
 import { ConversationRenderer, type ConversationMessage } from "./conversation.js";
-import { ESC, fullFrame, layout, pdfTitle, promptFrame, rightFrame } from "./frame.js";
+import { ESC, fullFrame, layout, leftTitleFrame, pdfTitle, promptFrame, rightFrame } from "./frame.js";
 import { PdfDocument, type RenderedSection } from "./pdf.js";
 import { PaperLibrary, type LoadedPaper } from "./paper.js";
 import { matchingItems, renderInputLine, SelectionPicker, type SelectionCommand, type SelectionOptions } from "./selection.js";
@@ -12,6 +12,9 @@ const PDF_ZOOM_IN_KEYS = new Set<string>([
   Key.ctrl("+"), Key.ctrl("="), Key.shiftCtrl("+"), Key.shiftCtrl("="),
 ]);
 const PDF_ZOOM_OUT_KEYS = new Set<string>([Key.alt("-"), Key.ctrl("-")]);
+// Fallback for terminals that never answer the cell size query.
+const CELL_SIZE_TIMEOUT_MS = 250;
+const FRAME_MS = 16;
 
 export class PaperUi {
   private readonly terminal = new ProcessTerminal();
@@ -24,6 +27,11 @@ export class PaperUi {
   private image?: RenderedSection;
   private imageCurrent = false;
   private renderGeneration = 0;
+  private rendering?: Promise<void>;
+  private imageStale = false;
+  private cellSizeQuery?: Promise<void>;
+  private cellSizeReceived?: () => void;
+  private frame?: NodeJS.Timeout;
   private cellWidth = 8;
   private cellHeight = 16;
   private conversationOffset = 0;
@@ -40,9 +48,9 @@ export class PaperUi {
         const message = this.messages.at(-1);
         if (message?.role === "Agent") message.text += delta;
         this.conversationOffset = 0;
-        this.renderRight();
+        this.scheduleRight();
       },
-      onChange: () => this.renderPrompt(),
+      onChange: () => this.scheduleRight(),
     });
   }
 
@@ -57,16 +65,21 @@ export class PaperUi {
     this.terminal.start((data) => this.handleInput(data), () => this.handleResize());
     this.terminal.write(`${ESC}[?1049h${ESC}[?25l${ESC}[2J`);
     this.terminal.setTitle(`pi paper — ${this.title}`);
-    this.queryCellSize();
     this.renderFull();
 
+    // The paper comes first: loading the agent blocks the event loop, so it would delay the image.
     this.busy = true;
-    const [agentResult] = await Promise.allSettled([this.agent.start(), this.refreshImage()]);
+    await this.measureCells();
+    await this.refreshImage();
+    try {
+      await this.agent.start();
+      this.agentReady = true;
+    } catch (error) {
+      this.agentFailed(error);
+    }
     this.busy = false;
     if (this.stopped) return completion;
-    if (agentResult.status === "fulfilled") this.agentReady = true;
-    else this.agentFailed(agentResult.reason);
-    this.renderFull();
+    this.renderRight();
 
     return completion;
   }
@@ -85,17 +98,27 @@ export class PaperUi {
     return layout(this.terminal.columns, this.terminal.rows);
   }
 
-  private queryCellSize(): void {
-    this.terminal.write(`${ESC}[14t`);
+  /** Resolves once the terminal reports its pixel size, so no render uses a stale cell size. */
+  private measureCells(): Promise<void> {
+    this.cellSizeQuery ??= new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => this.cellSizeReceived?.(), CELL_SIZE_TIMEOUT_MS);
+      this.cellSizeReceived = () => {
+        clearTimeout(timeout);
+        this.cellSizeQuery = undefined;
+        this.cellSizeReceived = undefined;
+        resolve();
+      };
+      this.terminal.write(`${ESC}[14t`);
+    });
+    return this.cellSizeQuery;
   }
 
   private handleResize(): void {
     if (this.terminal.columns < 20 || this.terminal.rows < 8) return;
     this.image = undefined;
     this.imageCurrent = false;
-    this.queryCellSize();
     this.renderFull();
-    void this.refreshImage();
+    void this.measureCells().then(() => this.refreshImage());
   }
 
   private handleInput(data: string): void {
@@ -103,7 +126,7 @@ export class PaperUi {
     if (pixelSize) {
       this.cellHeight = Math.max(1, Number(pixelSize[1]) / this.terminal.rows);
       this.cellWidth = Math.max(1, Number(pixelSize[2]) / this.terminal.columns);
-      void this.refreshImage();
+      this.cellSizeReceived?.();
       return;
     }
 
@@ -169,9 +192,10 @@ export class PaperUi {
     if (this.pdf.setZoom(direction, this.dimensions.contentRows * this.cellHeight)) this.rerenderPdf();
   }
 
+  /** Keeps the current image on screen until its replacement is ready. */
   private rerenderPdf(): void {
     this.imageCurrent = false;
-    this.renderFull();
+    this.terminal.write(leftTitleFrame(this.dimensions, this.pdfTitle) + this.promptFrame());
     void this.refreshImage();
   }
 
@@ -191,18 +215,29 @@ export class PaperUi {
     );
   }
 
-  private async refreshImage(): Promise<void> {
-    const generation = ++this.renderGeneration;
-    try {
-      const image = await this.renderPdf(this.pdf);
-      if (generation !== this.renderGeneration || this.stopped) return;
-      this.image = image;
-      this.imageCurrent = true;
-      this.renderFull();
-    } catch (error) {
-      if (generation !== this.renderGeneration || this.stopped) return;
-      this.imageCurrent = false;
-      this.notify(this.errorMessage(error));
+  private refreshImage(): Promise<void> {
+    this.imageStale = true;
+    this.rendering ??= this.renderLatest().finally(() => {
+      this.rendering = undefined;
+    });
+    return this.rendering;
+  }
+
+  /** Runs one render at a time; requests made meanwhile collapse into a single follow-up. */
+  private async renderLatest(): Promise<void> {
+    while (this.imageStale && !this.stopped) {
+      this.imageStale = false;
+      const generation = ++this.renderGeneration;
+      try {
+        const image = await this.renderPdf(this.pdf);
+        if (generation !== this.renderGeneration || this.stopped) continue;
+        this.image = image;
+        this.imageCurrent = !this.imageStale;
+      } catch (error) {
+        if (generation !== this.renderGeneration || this.stopped) continue;
+        this.imageCurrent = false;
+        this.notify(this.errorMessage(error));
+      }
       this.renderFull();
     }
   }
@@ -234,7 +269,7 @@ export class PaperUi {
         await this.resetConversation();
       } finally {
         this.busy = false;
-        this.renderFull();
+        this.renderRight();
       }
       return;
     }
@@ -258,7 +293,7 @@ export class PaperUi {
     const location = Math.round(100 * this.pdf.y / Math.max(1, this.pdf.pageHeight));
     const context = `Visible section: page ${this.pdf.page} of ${this.pdf.metadata.pages}, about ${location}% down the page, zoom ${this.pdf.zoom}%.`;
     try {
-      await this.agent.ask(question, this.image.pngBase64, context);
+      await this.agent.ask(question, this.image.png(), context);
       if (!this.messages.at(-1)?.text) this.messages.at(-1)!.text = "No response was returned.";
     } catch (error) {
       const message = this.messages.at(-1);
@@ -273,7 +308,7 @@ export class PaperUi {
   private async resetConversation(): Promise<void> {
     this.messages.length = 0;
     this.conversationOffset = 0;
-    this.renderFull();
+    this.renderRight();
     try {
       await this.agent.reset();
       if (this.stopped) {
@@ -398,32 +433,40 @@ export class PaperUi {
     return lines.slice(start, end);
   }
 
+  private get pdfTitle(): string {
+    return pdfTitle(this.dimensions, this.title, this.pdf.zoom, this.pdf.page, this.pdf.metadata.pages);
+  }
+
+  private imageFrame(): string {
+    return this.image ? `${ESC}[2;${2 + this.image.leftCells}H${this.image.sixel}` : "";
+  }
+
+  private promptFrame(): string {
+    const d = this.dimensions;
+    return promptFrame(d, this.agent.summary, renderInputLine(this.picker?.input ?? this.input, d.columns - 5));
+  }
+
   private renderFull(): void {
     if (this.stopped) return;
-    const d = this.dimensions;
-    const title = pdfTitle(d, this.title, this.pdf.zoom, this.pdf.page, this.pdf.metadata.pages);
-    this.terminal.write(fullFrame(d, title, this.rightTitle, this.rightLines()));
-    this.renderPrompt();
-    this.drawImage();
+    this.terminal.write(fullFrame(this.dimensions, this.pdfTitle, this.rightTitle, this.rightLines()) + this.imageFrame() + this.promptFrame());
+  }
+
+  /** Coalesces streaming updates into at most one conversation redraw per frame. */
+  private scheduleRight(): void {
+    this.frame ??= setTimeout(() => {
+      this.frame = undefined;
+      this.renderRight();
+    }, FRAME_MS);
   }
 
   private renderRight(): void {
     if (this.stopped) return;
-    this.terminal.write(rightFrame(this.dimensions, this.rightTitle, this.rightLines()));
-    this.renderPrompt();
+    this.terminal.write(rightFrame(this.dimensions, this.rightTitle, this.rightLines()) + this.promptFrame());
   }
 
   private renderPrompt(): void {
     if (this.stopped) return;
-    const d = this.dimensions;
-    this.terminal.write(promptFrame(d, this.agent.summary, renderInputLine(this.picker?.input ?? this.input, d.columns - 5)));
-  }
-
-  private drawImage(): void {
-    if (!this.image) return;
-    const column = 2 + this.image.leftCells;
-    this.terminal.write(`${ESC}7${ESC}[2;${column}H${this.image.sixel}${ESC}8`);
-    this.renderPrompt();
+    this.terminal.write(this.promptFrame());
   }
 
   private errorMessage(error: unknown): string {
