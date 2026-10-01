@@ -95,7 +95,7 @@ export class PdfDocument {
     const cropHeight = Math.max(1, Math.min(pageHeight - this.y, viewportHeight));
     const cropX = Math.max(0, Math.floor((pageWidth - cropWidth) / 2));
     const raster = parsePpm(await run("pdftoppm", [
-      "-f", String(this.page), "-l", String(this.page), "-singlefile",
+      "-f", String(this.page), "-l", String(this.page), "-singlefile", "-hide-annotations",
       "-r", String(72 * this.zoom / 100),
       "-x", String(cropX), "-y", String(this.y),
       "-W", String(cropWidth), "-H", String(cropHeight),

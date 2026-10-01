@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { parsePaperSource } from "../src/paper-source.js";
 import { encodePng } from "../src/png.js";
@@ -32,4 +35,32 @@ test("paper scrolling crosses pages and zoom stays in presets", () => {
   assert.equal(pdf.y, 0);
   assert.equal(pdf.setZoom(1, 400), true);
   assert.equal(pdf.zoom, 125);
+});
+
+function linkedPdf(): Buffer {
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >>",
+    "<< /Type /Annot /Subtype /Link /Rect [20 20 80 80] /Border [0 0 4] /C [0 1 0] /A << /S /URI /URI (https://arxiv.org) >> >>",
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = objects.map((body, i) => {
+    const offset = pdf.length;
+    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
+    return offset;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  pdf += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, "latin1");
+}
+
+test("link annotation borders are not drawn on the page", async () => {
+  const path = join(await mkdtemp(join(tmpdir(), "pi-paper-")), "linked.pdf");
+  await writeFile(path, linkedPdf());
+  const pdf = new PdfDocument(path, { pages: 1, widthPoints: 100, heightPoints: 100 });
+  const { sixel } = await pdf.render(100, 100, 10);
+  assert.ok(!sixel.includes("#12;2;0;100;0"));
 });
