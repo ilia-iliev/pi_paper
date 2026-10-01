@@ -25,6 +25,17 @@ const markdownTheme: MarkdownTheme = {
   underline: style(4, 24),
 };
 
+const CODE_FENCE = /(^```[\s\S]*?^```)/m;
+const DISPLAY_MATH_AFTER_TEXT = /([^\n])\n( {0,3}(?:\\\[|\$\$))/g;
+
+/** Separates display math from a preceding line, so Markdown can't read `=` inside it as a setext heading underline. */
+function separateDisplayMath(text: string): string {
+  return text
+    .split(CODE_FENCE)
+    .map((part, index) => (index % 2 ? part : part.replace(DISPLAY_MATH_AFTER_TEXT, "$1\n\n$2")))
+    .join("");
+}
+
 /** Renders agent replies as Markdown, caching one renderer per message while it streams. */
 export class ConversationRenderer {
   private readonly markdown = new WeakMap<ConversationMessage, { text: string; renderer: Markdown }>();
@@ -34,8 +45,8 @@ export class ConversationRenderer {
   }
 
   private messageLines(message: ConversationMessage, width: number): string[] {
-    const text = message.text || (message.role === "Agent" ? "…" : "");
-    if (message.role !== "Agent") return wrapTextWithAnsi(text, width);
+    if (message.role !== "Agent") return wrapTextWithAnsi(message.text, width);
+    const text = separateDisplayMath(message.text) || "…";
     let cached = this.markdown.get(message);
     if (!cached) {
       cached = { text, renderer: new Markdown(text, 0, 0, markdownTheme) };

@@ -305,6 +305,33 @@ $$\frac{1}{2}$$`;
   assert.equal(ui.messages[0].text, source, "formatting must not change conversation source");
 });
 
+test("display formulas directly after a paragraph line render as math, not setext headings", () => {
+  const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness;
+  Object.defineProperties(ui.terminal, { columns: { value: 220 }, rows: { value: 40 } });
+  ui.messages.push({ role: "Agent", text: String.raw`The mask allows only positions t-1,t, so:
+\[
+a_t
+=
+\alpha_{t,t}
++
+\alpha_{t,t-1}.
+\]
+
+Then
+$$
+\frac{1}{2}
+=
+\beta
+$$` });
+  const text = ui.conversationLines().map(stripVTControlCharacters).join("\n");
+  assert.ok(!text.includes("\\["));
+  assert.ok(!text.includes("\\alpha"));
+  assert.ok(text.includes("α"));
+  assert.ok(text.includes("β"));
+  assert.ok(!text.includes("$$"));
+});
+
 test("tables align cells and wrap within the conversation pane after resize", () => {
   const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
   const ui = paperUi(pdf) as unknown as UiHarness;
