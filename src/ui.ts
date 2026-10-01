@@ -1,9 +1,9 @@
-import { decodeKittyPrintable, isKeyRelease, Key, matchesKey, parseKey, ProcessTerminal, Markdown, type MarkdownTheme, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Input, isKeyRelease, Key, matchesKey, parseKey, ProcessTerminal, Markdown, type MarkdownTheme, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { PaperAgent } from "./agent.js";
 import { PdfDocument, type RenderedSection } from "./pdf.js";
 import { PaperLibrary, type LoadedPaper } from "./paper.js";
-import { matchingItems, SelectionPicker, type SelectionCommand, type SelectionOptions } from "./selection.js";
-import { pad, truncate, wrapText } from "./text.js";
+import { matchingItems, renderInputLine, SelectionPicker, type SelectionCommand, type SelectionOptions } from "./selection.js";
+import { truncate } from "./text.js";
 
 interface ConversationMessage {
   role: "You" | "Agent" | "App";
@@ -72,8 +72,7 @@ export class PaperUi {
   private readonly agent: PaperAgent;
   private readonly messages: ConversationMessage[] = [];
   private readonly markdown = new WeakMap<ConversationMessage, { text: string; renderer: Markdown }>();
-  private input: string[] = [];
-  private cursor = 0;
+  private readonly input = new Input();
   private picker?: SelectionPicker;
   private selectionCommand: SelectionCommand = "/model";
   private image?: RenderedSection;
@@ -90,6 +89,7 @@ export class PaperUi {
   private resolveRun?: () => void;
 
   constructor(private pdf: PdfDocument, private title: string, private readonly papers = new PaperLibrary()) {
+    this.input.focused = true;
     this.agent = new PaperAgent({
       onDelta: (delta) => {
         const message = this.messages.at(-1);
@@ -234,21 +234,7 @@ export class PaperUi {
       void this.submit();
       return;
     }
-    if (matchesKey(data, Key.left)) this.cursor = Math.max(0, this.cursor - 1);
-    else if (matchesKey(data, Key.right)) this.cursor = Math.min(this.input.length, this.cursor + 1);
-    else if (matchesKey(data, Key.home) || matchesKey(data, Key.ctrl("a"))) this.cursor = 0;
-    else if (matchesKey(data, Key.end) || matchesKey(data, Key.ctrl("e"))) this.cursor = this.input.length;
-    else if (matchesKey(data, Key.backspace)) {
-      if (this.cursor > 0) this.input.splice(--this.cursor, 1);
-    } else if (matchesKey(data, Key.delete)) {
-      if (this.cursor < this.input.length) this.input.splice(this.cursor, 1);
-    } else {
-      const printable = decodeKittyPrintable(data) ?? (/^[^\x00-\x1f\x7f]+$/u.test(data) ? data : undefined);
-      if (!printable) return;
-      const characters = [...printable.replace(/[\r\n]/g, " ")];
-      this.input.splice(this.cursor, 0, ...characters);
-      this.cursor += characters.length;
-    }
+    this.input.handleInput(data);
     this.renderPrompt();
   }
 
@@ -305,10 +291,9 @@ export class PaperUi {
   }
 
   private async submit(): Promise<void> {
-    const question = this.input.join("").trim();
+    const question = this.input.getValue().trim();
     if (!question || this.busy) return;
-    this.input = [];
-    this.cursor = 0;
+    this.input.setValue("");
 
     if (question === "/help") {
       this.messages.push({ role: "App", text: HELP_TEXT });
@@ -508,7 +493,7 @@ export class PaperUi {
 
   private messageLines(message: ConversationMessage, width: number): string[] {
     const text = message.text || (message.role === "Agent" ? "…" : "");
-    if (message.role !== "Agent") return wrapText(text, width);
+    if (message.role !== "Agent") return wrapTextWithAnsi(text, width);
     let cached = this.markdown.get(message);
     if (!cached) {
       cached = { text, renderer: new Markdown(text, 0, 0, markdownTheme) };
@@ -544,7 +529,7 @@ export class PaperUi {
     const d = this.dimensions;
     const leftTitle = `PDF · ${truncate(this.title, Math.max(4, d.leftInner - 28))} · ${this.pdf.zoom}% · ${this.pdf.page}/${this.pdf.metadata.pages}`;
     const output: string[] = [`${ESC}[?25l${ESC}[H`];
-    output.push(`${color.dim}${this.border("┌", "┬", "┐", leftTitle, this.rightTitle)}${color.reset}`);
+    output.push(`${color.dim}┌${this.borderSection(leftTitle, d.leftInner)}┬${this.borderSection(this.rightTitle, d.rightInner)}┐${color.reset}`);
     const conversation = this.rightLines();
     for (let row = 0; row < d.contentRows; row++) {
       output.push(`\r\n${color.dim}│${" ".repeat(d.leftInner)}│${color.reset} ${this.padRight(conversation[row] ?? "")}${color.dim}│${color.reset}`);
@@ -573,17 +558,11 @@ export class PaperUi {
     if (this.stopped) return;
     const d = this.dimensions;
     const summary = truncate(this.agent.summary, Math.max(5, d.columns - 6));
-    const available = Math.max(1, d.columns - 6);
-    const start = Math.max(0, this.cursor - available + 1);
-    const shown = this.input.slice(start, start + available);
-    const beforeCursor = shown.slice(0, this.cursor - start).join("");
-    const search = this.picker?.renderInput(d.columns - 5);
-    const inputText = search?.text ?? pad(shown.join(""), d.columns - 5);
-    const cursorColumn = search ? 5 + search.cursor : 5 + [...beforeCursor].length;
+    const line = renderInputLine(this.picker?.input ?? this.input, d.columns - 5);
     let output = `${ESC}[${d.mainHeight + 1};1H${color.dim}┌${this.borderSection(summary, d.columns - 2)}┐${color.reset}`;
-    output += `${ESC}[${d.mainHeight + 2};1H${color.dim}│${color.reset} ${color.cyan}>${color.reset} ${inputText}${color.dim}│${color.reset}`;
+    output += `${ESC}[${d.mainHeight + 2};1H${color.dim}│${color.reset} ${color.cyan}>${color.reset} ${line.text}${color.dim}│${color.reset}`;
     output += `${ESC}[${d.mainHeight + 3};1H${color.dim}└${"─".repeat(d.columns - 2)}┘${color.reset}`;
-    output += `${ESC}[${d.mainHeight + 2};${cursorColumn}H${ESC}[?25h`;
+    output += `${ESC}[${d.mainHeight + 2};${5 + line.cursor}H${ESC}[?25h`;
     this.terminal.write(output);
   }
 
@@ -592,11 +571,6 @@ export class PaperUi {
     const column = 2 + this.image.leftCells;
     this.terminal.write(`${ESC}7${ESC}[2;${column}H${this.image.sixel}${ESC}8`);
     this.renderPrompt();
-  }
-
-  private border(left: string, middle: string, right: string, leftTitle: string, rightTitle: string): string {
-    const d = this.dimensions;
-    return `${left}${this.borderSection(leftTitle, d.leftInner)}${middle}${this.borderSection(rightTitle, d.rightInner)}${right}`;
   }
 
   private borderSection(title: string, width: number): string {

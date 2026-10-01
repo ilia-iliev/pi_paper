@@ -17,11 +17,17 @@ export function matchingItems(items: SelectItem[], query: string): SelectItem[] 
   return fuzzyFilter(items, query, (item) => `${item.value} ${item.label} ${item.description ?? ""}`);
 }
 
+export function renderInputLine(input: Input, width: number): { text: string; cursor: number } {
+  const line = input.render(width)[0];
+  const marker = line.indexOf(CURSOR_MARKER);
+  return { text: line.replace(CURSOR_MARKER, ""), cursor: visibleWidth(line.slice(0, marker)) };
+}
+
 const accent = (text: string) => `\x1b[36m${text}\x1b[0m`;
 const dim = (text: string) => `\x1b[2m${text}\x1b[0m`;
 
 export class SelectionPicker {
-  private readonly input = new Input({ prompt: "", placeholder: "Type to filter…", placeholderStyle: dim });
+  readonly input = new Input({ prompt: "", placeholder: "Type to filter…", placeholderStyle: dim });
   private list!: SelectList;
   private maxVisible = 10;
 
@@ -77,11 +83,5 @@ export class SelectionPicker {
     }
     if (!this.options.items.length) return [dim("  No choices available")];
     return this.list.render(width).slice(0, height);
-  }
-
-  renderInput(width: number): { text: string; cursor: number } {
-    const line = this.input.render(width)[0];
-    const marker = line.indexOf(CURSOR_MARKER);
-    return { text: line.replace(CURSOR_MARKER, ""), cursor: visibleWidth(line.slice(0, marker)) };
   }
 }

@@ -4,7 +4,6 @@ import { parsePaperSource } from "../src/arxiv.js";
 import { encodePng } from "../src/png.js";
 import { PdfDocument } from "../src/pdf.js";
 import { encodeSixel, parsePpm } from "../src/sixel.js";
-import { wrapText } from "../src/text.js";
 
 test("normalizes arXiv abstract and PDF links", () => {
   assert.equal(parsePaperSource("https://arxiv.org/abs/2401.12345v2").url, "https://arxiv.org/pdf/2401.12345v2.pdf");
@@ -32,9 +31,4 @@ test("paper scrolling crosses pages and zoom stays in presets", () => {
   assert.equal(pdf.y, 0);
   assert.equal(pdf.setZoom(1, 400), true);
   assert.equal(pdf.zoom, 125);
-});
-
-test("wraps conversation text without losing words", () => {
-  assert.deepEqual(wrapText("one two three", 7), ["one two", "three"]);
-  assert.deepEqual(wrapText("abcdefgh", 4), ["abcd", "efgh"]);
 });

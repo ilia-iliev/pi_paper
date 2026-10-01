@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CURSOR_MARKER, isKittyProtocolActive, setKittyProtocolActive, visibleWidth } from "@earendil-works/pi-tui";
-import { matchingItems, SelectionPicker } from "../src/selection.js";
+import { matchingItems, renderInputLine, SelectionPicker } from "../src/selection.js";
 
 const items = [
   { value: "openai-codex/gpt-6-sol", label: "gpt-6-sol", description: "[openai-codex] GPT 6 Sol" },
@@ -21,7 +21,7 @@ test("matching accepts suffixes, fuzzy queries, names, providers, and exact IDs"
 test("picker preselects the current item and wraps arrow navigation", () => {
   const selected: string[] = [];
   const picker = new SelectionPicker({ items, current: items[1].value }, "", (value) => selected.push(value), () => {});
-  assert.equal(picker.renderInput(50).cursor, 0);
+  assert.equal(renderInputLine(picker.input, 50).cursor, 0);
   picker.handleInput("\r");
   assert.deepEqual(selected, [items[1].value]);
   picker.handleInput("\x1b[B");
@@ -61,7 +61,7 @@ test("resize preserves selection and all rendered lines fit their viewport", () 
     assert.equal(selected.at(-1), many[20].value);
   }
   for (const character of "模型".repeat(30)) picker.handleInput(character);
-  const input = picker.renderInput(16);
+  const input = renderInputLine(picker.input, 16);
   assert.equal(visibleWidth(input.text), 16);
   assert.ok(input.cursor >= 0 && input.cursor < 16);
   assert.ok(!input.text.includes(CURSOR_MARKER));

@@ -3,6 +3,7 @@ import test, { type TestContext } from "node:test";
 import { PaperLibrary } from "../src/paper.js";
 import { PdfDocument, type RenderedSection } from "../src/pdf.js";
 import { PaperUi } from "../src/ui.js";
+import type { Input } from "@earendil-works/pi-tui";
 import { PaperAgent } from "../src/agent.js";
 
 interface Harness {
@@ -16,7 +17,7 @@ interface Harness {
   agent: PaperAgent;
   agentReady: boolean;
   agentError?: string;
-  input: string[];
+  input: Input;
   messages: { role: string; text: string }[];
   conversationOffset: number;
   image?: RenderedSection;
@@ -59,14 +60,14 @@ function fixture(t: TestContext) {
 for (const input of ['/new "Attention Is All You Need"', "/new Attention Is All You Need", "/new 'Attention Is All You Need'"]) {
   test(`${input} loads a fresh paper and clears context without asking the agent`, async (t) => {
     const f = fixture(t);
-    f.ui.input = [...input];
+    f.ui.input.setValue(input);
     await f.ui.submit();
     assert.equal(f.open.mock.calls[0].arguments[0], "Attention Is All You Need");
     assert.equal(f.ui.pdf, f.paper.pdf);
     assert.equal(f.ui.title, "New Paper");
     assert.deepEqual([f.ui.pdf.page, f.ui.pdf.y, f.ui.pdf.zoom], [1, 0, 100]);
     assert.deepEqual(f.ui.messages, []);
-    assert.deepEqual(f.ui.input, []);
+    assert.equal(f.ui.input.getValue(), "");
     assert.equal(f.ui.conversationOffset, 0);
     assert.equal(f.ui.image?.pngBase64, "new-image");
     assert.equal(f.ui.imageCurrent, true);
@@ -84,7 +85,7 @@ for (const input of ['/new "Attention Is All You Need"', "/new Attention Is All 
 for (const input of ["/new", '/new ""', '/new "unterminated']) {
   test(`${input} shows usage without touching the paper or context`, async (t) => {
     const f = fixture(t);
-    f.ui.input = [...input];
+    f.ui.input.setValue(input);
     await f.ui.submit();
     assert.equal(f.open.mock.callCount(), 0);
     assert.equal(f.reset.mock.callCount(), 0);
@@ -101,7 +102,7 @@ for (const failure of ["open", "render", "remember"] as const) {
     if (failure === "open") t.mock.method(f.library, "open", fail);
     if (failure === "render") t.mock.method(f.paper.pdf, "render", fail);
     if (failure === "remember") t.mock.method(f.library, "remember", fail);
-    f.ui.input = [..."/new missing"];
+    f.ui.input.setValue("/new missing");
     await f.ui.submit();
     assert.equal(f.ui.pdf, f.oldPdf);
     assert.equal(f.ui.title, "Old Paper");
@@ -120,7 +121,7 @@ test("agent restart failure still opens the paper with fresh context and permits
   const f = fixture(t);
   f.ui.agentReady = false;
   t.mock.method(f.ui.agent, "reset", async () => { throw new Error("No authentication"); });
-  f.ui.input = [..."/new 1706.03762"];
+  f.ui.input.setValue("/new 1706.03762");
   await f.ui.submit();
   assert.equal(f.ui.pdf, f.paper.pdf);
   assert.equal(f.ui.messages.length, 1);
@@ -135,7 +136,7 @@ test("a render from the previous paper cannot overwrite the new image", async (t
   let finish!: (value: RenderedSection) => void;
   t.mock.method(f.oldPdf, "render", () => new Promise<RenderedSection>((resolve) => { finish = resolve; }));
   const pending = f.ui.refreshImage();
-  f.ui.input = [..."/new new paper"];
+  f.ui.input.setValue("/new new paper");
   await f.ui.submit();
   finish({ ...image, pngBase64: "stale-image" });
   await pending;
@@ -146,7 +147,7 @@ test("closing during lookup releases the pending paper without changing history 
   const f = fixture(t);
   let finish!: (value: typeof f.paper) => void;
   t.mock.method(f.library, "open", () => new Promise<typeof f.paper>((resolve) => { finish = resolve; }));
-  f.ui.input = [..."/new new paper"];
+  f.ui.input.setValue("/new new paper");
   const pending = f.ui.submit();
   f.ui.stopped = true;
   finish(f.paper);
@@ -159,9 +160,9 @@ test("closing during lookup releases the pending paper without changing history 
 
 test("the first question after /new uses only the new PDF image and location", async (t) => {
   const f = fixture(t);
-  f.ui.input = [..."/new new paper"];
+  f.ui.input.setValue("/new new paper");
   await f.ui.submit();
-  f.ui.input = [..."Explain this figure"];
+  f.ui.input.setValue("Explain this figure");
   await f.ui.submit();
   assert.deepEqual(f.ask.mock.calls[0].arguments, [
     "Explain this figure", "new-image", "Visible section: page 1 of 10, about 0% down the page, zoom 100%.",
@@ -172,7 +173,7 @@ test("the first question after /new uses only the new PDF image and location", a
 
 test("/clear still resets context without replacing the paper", async (t) => {
   const f = fixture(t);
-  f.ui.input = [..."/clear"];
+  f.ui.input.setValue("/clear");
   await f.ui.submit();
   assert.equal(f.ui.pdf, f.oldPdf);
   assert.equal(f.ui.image?.pngBase64, "old-image");
@@ -185,7 +186,7 @@ test("/clear still resets context without replacing the paper", async (t) => {
 test("/new cannot start a second load while busy", async (t) => {
   const f = fixture(t);
   f.ui.busy = true;
-  f.ui.input = [..."/new new paper"];
+  f.ui.input.setValue("/new new paper");
   await f.ui.submit();
   assert.equal(f.open.mock.callCount(), 0);
   assert.equal(f.reset.mock.callCount(), 0);

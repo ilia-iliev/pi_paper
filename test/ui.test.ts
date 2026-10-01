@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { stripVTControlCharacters } from "node:util";
-import { isKittyProtocolActive, setKittyProtocolActive, visibleWidth } from "@earendil-works/pi-tui";
+import { isKittyProtocolActive, setKittyProtocolActive, visibleWidth, type Input } from "@earendil-works/pi-tui";
 import { PaperAgent } from "../src/agent.js";
 import { PdfDocument } from "../src/pdf.js";
 import { PaperUi } from "../src/ui.js";
@@ -14,7 +14,7 @@ interface UiHarness {
   renderPrompt(): void;
   conversationLines(): string[];
   refreshImage(): Promise<void>;
-  input: string[];
+  input: Input;
   picker?: SelectionPicker;
   submit(): Promise<void>;
   agent: PaperAgent;
@@ -57,7 +57,7 @@ for (const kittyActive of [false, true]) {
       ui.handleInput(decrease);
       assert.equal(pdf.zoom, 100);
       assert.deepEqual(renderedZooms, [125, 100]);
-      assert.deepEqual(ui.input, []);
+      assert.equal(ui.input.getValue(), "");
     });
   }
 }
@@ -86,7 +86,7 @@ test("unmodified plus and minus remain available in questions", (t) => {
   ui.handleInput("+");
   ui.handleInput("-");
   assert.equal(pdf.zoom, 100);
-  assert.deepEqual(ui.input, ["+", "-"]);
+  assert.equal(ui.input.getValue(), "+-");
 });
 
 for (const command of ["/model provider/model", "/thinking high"]) {
@@ -99,7 +99,7 @@ for (const command of ["/model provider/model", "/thinking high"]) {
     const configure = t.mock.method(ui.agent, "configure", async () => "Configured");
     const ask = t.mock.method(ui.agent, "ask", async () => {});
     t.mock.getter(ui.agent, "ready", () => true);
-    ui.input = [...command];
+    ui.input.setValue(command);
     await ui.submit();
     assert.equal(configure.mock.calls[0].arguments[0], command);
     assert.equal(ask.mock.callCount(), 0);
@@ -116,7 +116,7 @@ test("configuration errors are visible and the next command remains usable", asy
   t.mock.method(ui, "renderRight", () => {});
   t.mock.method(ui.agent, "getSelection", async () => ({ items: [{ value: "high", label: "high" }] }));
   t.mock.method(ui.agent, "configure", async () => { throw new Error("Unsupported thinking level"); });
-  ui.input = [..."/thinking invalid"];
+  ui.input.setValue("/thinking invalid");
   await ui.submit();
   assert.equal(ui.busy, false);
   assert.equal(ui.status, "Unsupported thinking level");
@@ -137,7 +137,7 @@ for (const command of ["/model", "/thinking", "/model sol"]) {
     const ask = t.mock.method(ui.agent, "ask", async () => {});
     ui.messages.push({ role: "You", text: "Keep this" });
     ui.conversationOffset = 5;
-    ui.input = [...command];
+    ui.input.setValue(command);
     await ui.submit();
     assert.ok(ui.picker);
     assert.equal(ui.busy, false);
@@ -161,7 +161,7 @@ for (const cancel of ["\x1b", "\x03"]) {
     t.mock.method(ui, "renderRight", () => {});
     t.mock.method(ui.agent, "getSelection", async () => ({ items: [{ value: "high", label: "high" }] }));
     const configure = t.mock.method(ui.agent, "configure", async () => "Configured");
-    ui.input = [..."/thinking"];
+    ui.input.setValue("/thinking");
     await ui.submit();
     ui.handleInput(cancel);
     assert.equal(ui.picker, undefined);
@@ -181,7 +181,7 @@ test("picker renders in the conversation pane, survives full redraws, and restor
     { value: "provider/gpt-6.1-sol", label: "gpt-6.1-sol" },
   ] }));
   ui.messages.push({ role: "You", text: "Previous question" });
-  ui.input = [..."/model"];
+  ui.input.setValue("/model");
   await ui.submit();
   output = "";
   ui.renderFull();
@@ -225,12 +225,12 @@ test("/help lists commands and keybindings locally without an agent or rendered 
   const ask = t.mock.method(ui.agent, "ask", async () => {});
   ui.messages.push({ role: "You", text: "Keep this" });
   ui.conversationOffset = 5;
-  ui.input = [..."/help"];
+  ui.input.setValue("/help");
   await ui.submit();
   assert.equal(configure.mock.callCount(), 0);
   assert.equal(ask.mock.callCount(), 0);
   assert.equal(ui.busy, false);
-  assert.deepEqual(ui.input, []);
+  assert.equal(ui.input.getValue(), "");
   assert.equal(ui.conversationOffset, 0);
   assert.equal(ui.messages[0].text, "Keep this");
   assert.equal(ui.messages.at(-1)?.role, "App");
