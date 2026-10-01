@@ -158,6 +158,7 @@ export class PaperUi {
 
     if (matchesKey(data, Key.ctrl("c"))) {
       if (this.busy) this.agent.abort();
+      else if (this.input.getValue()) this.clearPrompt();
       else this.stop();
       return;
     }
@@ -198,6 +199,11 @@ export class PaperUi {
       return;
     }
     this.input.handleInput(data);
+    if (!this.fitPrompt()) this.renderPrompt();
+  }
+
+  private clearPrompt(): void {
+    this.input.setValue("");
     if (!this.fitPrompt()) this.renderPrompt();
   }
 
