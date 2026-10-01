@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { writePrivateFile } from "./files.js";
 import { parsePaperSource, resolvePaperSource, type PaperSource } from "./arxiv.js";
 
 const DEFAULT_PAPER = "1706.03762";
@@ -23,7 +24,6 @@ export class PaperHistory {
   }
 
   async remember(source: PaperSource): Promise<void> {
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    await writeFile(this.path, `${source.localPath ?? source.url}\n`, { mode: 0o600 });
+    await writePrivateFile(this.path, `${source.localPath ?? source.url}\n`);
   }
 }

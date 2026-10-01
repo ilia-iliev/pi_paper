@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import { writePrivateFile } from "./files.js";
 
 export type ThinkingLevel = AgentSession["thinkingLevel"];
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -40,7 +41,6 @@ export class PaperSettings {
   }
 
   async save(defaults: PaperDefaults): Promise<void> {
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    await writeFile(this.path, `${JSON.stringify(defaults, null, 2)}\n`, { mode: 0o600 });
+    await writePrivateFile(this.path, `${JSON.stringify(defaults, null, 2)}\n`);
   }
 }

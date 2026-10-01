@@ -7,7 +7,7 @@ import {
   SettingsManager,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
-import { matchingItems, type SelectionCommand, type SelectionOptions } from "./selection.js";
+import type { SelectionCommand, SelectionOptions } from "./selection.js";
 import { PaperSettings, type ThinkingLevel } from "./settings.js";
 
 const SYSTEM_PROMPT = `You are a patient research-paper reading companion. The user is looking at a cropped image of an arXiv paper and will ask questions about it.
@@ -28,6 +28,10 @@ const THINKING_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 
 function thinkingItem(level: ThinkingLevel) {
   return { value: level, label: level, description: THINKING_DESCRIPTIONS[level] };
+}
+
+function isVisionModel(model: PaperModel): boolean {
+  return model.input.includes("image");
 }
 
 function modelItem(model: PaperModel) {
@@ -76,7 +80,7 @@ export class PaperAgent {
       throw new Error("Images are blocked by Pi settings (images.blockImages); disable it in Pi before restarting pi-paper");
     }
     if (!model) throw new Error("No model available; authenticate with pi /login, then select a vision model with /model");
-    if (!model.input.includes("image")) {
+    if (!isVisionModel(model)) {
       throw new Error(`${model.provider}/${model.id} does not support images; select a vision model with /model`);
     }
   }
@@ -134,44 +138,46 @@ export class PaperAgent {
     if (command === "/model") {
       const models = await this.modelRuntime!.getAvailable();
       return {
-        items: models.filter((model) => model.input.includes("image")).map(modelItem)
+        items: models.filter(isVisionModel).map(modelItem)
           .sort((a, b) => a.value.localeCompare(b.value)),
         current: this.session?.model ? modelItem(this.session.model).value : undefined,
       };
     }
-    if (!this.session?.model) throw new Error("Select a model with /model first");
+    const session = this.modelSession;
     return {
-      items: this.session.getAvailableThinkingLevels().map(thinkingItem),
-      current: this.session.thinkingLevel,
+      items: session.getAvailableThinkingLevels().map(thinkingItem),
+      current: session.thinkingLevel,
     };
   }
 
-  async configure(command: string): Promise<string> {
+  private get modelSession(): AgentSession {
+    if (!this.session?.model) throw new Error("Select a model with /model first");
+    return this.session;
+  }
+
+  async select(command: SelectionCommand, value: string): Promise<string> {
     await this.initialize();
-    const [name, ...args] = command.trim().split(/\s+/);
-    const value = args.join(" ");
-    if (name === "/model") {
-      const models = await this.modelRuntime!.getAvailable();
-      const exact = models.find((model) => modelItem(model).value.toLowerCase() === value.toLowerCase());
-      const matches = matchingItems(models.filter((model) => model.input.includes("image")).map(modelItem), value);
-      if (!exact && matches.length > 1) throw new Error(`Multiple models match: ${value}. Use /model to choose one.`);
-      const model = exact ?? models.find((model) => modelItem(model).value === matches[0]?.value);
-      if (!model) throw new Error(`Model unavailable: ${value}. Use /model to choose an authenticated vision model.`);
-      this.validateVision(model);
-      if (this.session) await this.session.setModel(model);
-      else await this.createSession(model);
-      this.validated = true;
-    } else if (name === "/thinking") {
-      if (!this.session?.model) throw new Error("Select a model with /model first");
-      const levels = this.session.getAvailableThinkingLevels();
-      const matches = matchingItems(levels.map(thinkingItem), value);
-      if (matches.length !== 1) throw new Error(`Unsupported thinking level. Choose: ${levels.join(", ")}`);
-      this.session.setThinkingLevel(matches[0].value as ThinkingLevel);
-    } else {
-      throw new Error("Unknown command. Use /help for commands and keybindings.");
-    }
+    if (command === "/model") await this.selectModel(value);
+    else this.selectThinking(value);
     await this.saveSelection();
     return "Saved pi-paper defaults.";
+  }
+
+  private async selectModel(value: string): Promise<void> {
+    const models = await this.modelRuntime!.getAvailable();
+    const model = models.find((model) => modelItem(model).value.toLowerCase() === value.toLowerCase());
+    if (!model) throw new Error(`Model unavailable: ${value}. Use /model to choose an authenticated vision model.`);
+    this.validateVision(model);
+    if (this.session) await this.session.setModel(model);
+    else await this.createSession(model);
+    this.validated = true;
+  }
+
+  private selectThinking(value: string): void {
+    const session = this.modelSession;
+    const levels = session.getAvailableThinkingLevels();
+    if (!levels.includes(value as ThinkingLevel)) throw new Error(`Unsupported thinking level. Choose: ${levels.join(", ")}`);
+    session.setThinkingLevel(value as ThinkingLevel);
   }
 
   private async saveSelection(): Promise<void> {

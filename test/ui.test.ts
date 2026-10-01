@@ -96,12 +96,12 @@ for (const command of ["/model provider/model", "/thinking high"]) {
     t.mock.method(ui, "renderPrompt", () => {});
     t.mock.method(ui, "renderRight", () => {});
     t.mock.method(ui.agent, "getSelection", async () => ({ items: [{ value: command.split(" ")[1], label: command.split(" ")[1] }] }));
-    const configure = t.mock.method(ui.agent, "configure", async () => "Configured");
+    const select = t.mock.method(ui.agent, "select", async () => "Configured");
     const ask = t.mock.method(ui.agent, "ask", async () => {});
     t.mock.getter(ui.agent, "ready", () => true);
     ui.input.setValue(command);
     await ui.submit();
-    assert.equal(configure.mock.calls[0].arguments[0], command);
+    assert.deepEqual(select.mock.calls[0].arguments, command.split(" "));
     assert.equal(ask.mock.callCount(), 0);
     assert.equal(ui.agentReady, true);
     assert.equal(ui.busy, false);
@@ -115,12 +115,24 @@ test("configuration errors are visible and the next command remains usable", asy
   t.mock.method(ui, "renderPrompt", () => {});
   t.mock.method(ui, "renderRight", () => {});
   t.mock.method(ui.agent, "getSelection", async () => ({ items: [{ value: "high", label: "high" }] }));
-  t.mock.method(ui.agent, "configure", async () => { throw new Error("Unsupported thinking level"); });
+  t.mock.method(ui.agent, "select", async () => { throw new Error("Unsupported thinking level"); });
   ui.input.setValue("/thinking invalid");
   await ui.submit();
   assert.equal(ui.busy, false);
   assert.equal(ui.status, "Unsupported thinking level");
   assert.equal(ui.messages.at(-1)?.text, ui.status);
+});
+
+test("unknown slash commands are reported without reaching the agent", async (t) => {
+  const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
+  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  t.mock.method(ui, "renderPrompt", () => {});
+  t.mock.method(ui, "renderRight", () => {});
+  const select = t.mock.method(ui.agent, "select", async () => "Configured");
+  ui.input.setValue("/unknown");
+  await ui.submit();
+  assert.equal(select.mock.callCount(), 0);
+  assert.match(ui.messages.at(-1)!.text, /Unknown command/);
 });
 
 for (const command of ["/model", "/thinking", "/model sol"]) {
@@ -133,7 +145,7 @@ for (const command of ["/model", "/thinking", "/model sol"]) {
       ? [{ value: "provider/gpt-6-sol", label: "gpt-6-sol" }, { value: "provider/gpt-6.1-sol", label: "gpt-6.1-sol" }]
       : [{ value: "low", label: "low" }, { value: "high", label: "high" }];
     t.mock.method(ui.agent, "getSelection", async () => ({ items, current: items[0].value }));
-    const configure = t.mock.method(ui.agent, "configure", async () => "Configured");
+    const select = t.mock.method(ui.agent, "select", async () => "Configured");
     const ask = t.mock.method(ui.agent, "ask", async () => {});
     ui.messages.push({ role: "You", text: "Keep this" });
     ui.conversationOffset = 5;
@@ -141,7 +153,7 @@ for (const command of ["/model", "/thinking", "/model sol"]) {
     await ui.submit();
     assert.ok(ui.picker);
     assert.equal(ui.busy, false);
-    assert.equal(configure.mock.callCount(), 0);
+    assert.equal(select.mock.callCount(), 0);
     assert.equal(ask.mock.callCount(), 0);
     assert.equal(ui.conversationOffset, 5);
     assert.deepEqual(ui.messages, [{ role: "You", text: "Keep this" }]);
@@ -149,7 +161,7 @@ for (const command of ["/model", "/thinking", "/model sol"]) {
     ui.handleInput("\r");
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(ui.picker, undefined);
-    assert.equal(configure.mock.calls[0].arguments[0], `${command.split(" ")[0]} ${items[1].value}`);
+    assert.deepEqual(select.mock.calls[0].arguments, [command.split(" ")[0], items[1].value]);
   });
 }
 
@@ -160,12 +172,12 @@ for (const cancel of ["\x1b", "\x03"]) {
     t.mock.method(ui, "renderPrompt", () => {});
     t.mock.method(ui, "renderRight", () => {});
     t.mock.method(ui.agent, "getSelection", async () => ({ items: [{ value: "high", label: "high" }] }));
-    const configure = t.mock.method(ui.agent, "configure", async () => "Configured");
+    const select = t.mock.method(ui.agent, "select", async () => "Configured");
     ui.input.setValue("/thinking");
     await ui.submit();
     ui.handleInput(cancel);
     assert.equal(ui.picker, undefined);
-    assert.equal(configure.mock.callCount(), 0);
+    assert.equal(select.mock.callCount(), 0);
     assert.deepEqual(ui.messages, []);
   });
 }
@@ -221,13 +233,13 @@ test("/help lists commands and keybindings locally without an agent or rendered 
   const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
   const render = t.mock.method(ui, "renderRight", () => {});
   t.mock.method(ui, "renderPrompt", () => {});
-  const configure = t.mock.method(ui.agent, "configure", async () => "Configured");
+  const select = t.mock.method(ui.agent, "select", async () => "Configured");
   const ask = t.mock.method(ui.agent, "ask", async () => {});
   ui.messages.push({ role: "You", text: "Keep this" });
   ui.conversationOffset = 5;
   ui.input.setValue("/help");
   await ui.submit();
-  assert.equal(configure.mock.callCount(), 0);
+  assert.equal(select.mock.callCount(), 0);
   assert.equal(ask.mock.callCount(), 0);
   assert.equal(ui.busy, false);
   assert.equal(ui.input.getValue(), "");

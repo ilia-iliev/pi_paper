@@ -1,4 +1,5 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
+import { httpGet } from "./http.js";
 
 interface SearchResult {
   title: string;
@@ -62,10 +63,7 @@ export async function searchArxiv(input: string): Promise<SearchResult> {
   url.searchParams.set("start", "0");
   url.searchParams.set("max_results", "50");
   url.searchParams.set("sortBy", "relevance");
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(30_000),
-    headers: { "user-agent": "pi-paper/0.1" },
-  });
+  const response = await httpGet(url);
   if (!response.ok) throw new Error(`arXiv search failed (HTTP ${response.status})`);
   const ranked = parseResults(await response.text())
     .map((paper) => ({ paper, score: titleScore(query, paper.title) }))

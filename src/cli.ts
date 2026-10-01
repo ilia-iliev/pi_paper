@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { HELP_TEXT } from "./help.js";
 import { PaperLibrary } from "./paper.js";
 import { PaperUi } from "./ui.js";
 import { update } from "./update.js";
@@ -12,21 +13,7 @@ Names search arXiv titles without an agent; quote names containing spaces.
 With no paper, reopen the last one (first run: Attention Is All You Need).
 Use update to rebuild and reinstall your local source checkout.
 
-Keys:
-  PageUp / PageDown        Scroll the paper by half a viewport
-  Ctrl+PageUp / PageDown   Scroll the conversation
-  Alt++ / Alt+-            Zoom from 50% to 250% (Alt+= also works)
-  Enter                    Ask about the visible section
-  /model                   Search authenticated vision models
-  /model query             Select a match, or open a filtered picker
-  /thinking                Pick a supported thinking level
-  /thinking level          Change thinking; save the pi-paper default
-  /new paper-name          Open another paper and clear the conversation
-  /clear                   Start a fresh conversation
-  Escape                   Cancel a picker or stop the current response
-  Ctrl+C                   Cancel a picker, stop a response, or quit
-
-Pickers: type to filter, ↑/↓ to navigate, Enter to select.`);
+${HELP_TEXT}`);
 }
 
 async function main(): Promise<void> {

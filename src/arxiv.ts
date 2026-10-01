@@ -2,10 +2,15 @@ import { createWriteStream, existsSync } from "node:fs";
 import { copyFile, stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { basename, resolve } from "node:path";
+import { httpGet } from "./http.js";
 import { searchArxiv } from "./paper-search.js";
 
 const ARXIV_ID = /^(?:\d{4}\.\d{4,5}|[a-z-]+(?:\.[a-z-]+)?\/\d{7})(?:v\d+)?$/i;
 const MAX_PDF_BYTES = 100 * 1024 * 1024;
+
+function tooLarge(): Error {
+  return new Error("PDF exceeds the 100 MB limit");
+}
 
 export interface PaperSource {
   label: string;
@@ -49,27 +54,23 @@ export async function acquirePaper(source: PaperSource, destination: string): Pr
   if (source.localPath) {
     const info = await stat(source.localPath);
     if (!info.isFile()) throw new Error("The local PDF path is not a file");
-    if (info.size > MAX_PDF_BYTES) throw new Error("PDF exceeds the 100 MB limit");
+    if (info.size > MAX_PDF_BYTES) throw tooLarge();
     await copyFile(source.localPath, destination);
     return;
   }
 
-  const response = await fetch(source.url!, {
-    redirect: "follow",
-    signal: AbortSignal.timeout(30_000),
-    headers: { "user-agent": "pi-paper/0.1" },
-  });
+  const response = await httpGet(source.url!);
   if (!response.ok || !response.body) {
     throw new Error(`Could not download paper (HTTP ${response.status})`);
   }
   const contentLength = Number(response.headers.get("content-length"));
-  if (contentLength > MAX_PDF_BYTES) throw new Error("PDF exceeds the 100 MB limit");
+  if (contentLength > MAX_PDF_BYTES) throw tooLarge();
 
   let received = 0;
   const limiter = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       received += chunk.byteLength;
-      if (received > MAX_PDF_BYTES) throw new Error("PDF exceeds the 100 MB limit");
+      if (received > MAX_PDF_BYTES) throw tooLarge();
       controller.enqueue(chunk);
     },
   });

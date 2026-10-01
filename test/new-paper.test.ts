@@ -46,7 +46,7 @@ function fixture(t: TestContext) {
   const remember = t.mock.method(library, "remember", async () => {});
   const release = t.mock.method(library, "release", async () => {});
   const reset = t.mock.method(ui.agent, "reset", async () => {});
-  const configure = t.mock.method(ui.agent, "configure", async () => "Configured");
+  const select = t.mock.method(ui.agent, "select", async () => "Configured");
   const ask = t.mock.method(ui.agent, "ask", async () => {});
   t.mock.method(pdf, "render", async () => image);
   ui.messages.push({ role: "You", text: "Old context" }, { role: "Agent", text: "Old answer" });
@@ -54,7 +54,7 @@ function fixture(t: TestContext) {
   ui.agentReady = true;
   ui.image = { ...image, pngBase64: "old-image" };
   ui.imageCurrent = true;
-  return { ui, library, oldPdf, paper, open, remember, release, reset, configure, ask, setTitle };
+  return { ui, library, oldPdf, paper, open, remember, release, reset, select, ask, setTitle };
 }
 
 for (const input of ['/new "Attention Is All You Need"', "/new Attention Is All You Need", "/new 'Attention Is All You Need'"]) {
@@ -72,7 +72,7 @@ for (const input of ['/new "Attention Is All You Need"', "/new Attention Is All 
     assert.equal(f.ui.image?.pngBase64, "new-image");
     assert.equal(f.ui.imageCurrent, true);
     assert.equal(f.reset.mock.callCount(), 1);
-    assert.equal(f.configure.mock.callCount(), 0);
+    assert.equal(f.select.mock.callCount(), 0);
     assert.equal(f.ask.mock.callCount(), 0);
     assert.equal(f.remember.mock.calls[0].arguments[0], f.paper);
     assert.equal(f.release.mock.calls[0].arguments[0], f.oldPdf);

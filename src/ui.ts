@@ -3,38 +3,13 @@ import { PaperAgent } from "./agent.js";
 import { PdfDocument, type RenderedSection } from "./pdf.js";
 import { PaperLibrary, type LoadedPaper } from "./paper.js";
 import { matchingItems, renderInputLine, SelectionPicker, type SelectionCommand, type SelectionOptions } from "./selection.js";
+import { HELP_TEXT } from "./help.js";
 import { truncate } from "./text.js";
 
 interface ConversationMessage {
   role: "You" | "Agent" | "App";
   text: string;
 }
-
-const HELP_TEXT = `Commands
-/help — Show commands and keybindings
-/new "paper name" — Open another paper and clear the conversation and agent context
-/model [query] — Pick a vision model or select a unique match
-/thinking [level] — Pick or set the thinking level
-/clear — Clear the conversation and agent context
-Model and thinking choices are saved for pi-paper.
-
-Keybindings
-PgUp / PgDn — Move through the PDF
-Ctrl+PgUp / Ctrl+PgDn — Scroll the conversation
-Alt++ / Alt+= / Alt+- — Zoom the PDF (50–250%)
-Ctrl++ / Ctrl+= / Ctrl+- — Zoom aliases if the terminal passes them through
-Enter — Submit a question or command
-Esc — Stop the current response
-Ctrl+C — Stop a response, or quit when idle
-←/→ — Move the input cursor
-Home / Ctrl+A — Start of input
-End / Ctrl+E — End of input
-Backspace / Delete — Delete before / after the cursor
-
-Pickers
-Type to filter · ↑/↓ to navigate
-Enter — Select
-Esc / Ctrl+C — Cancel`;
 
 const ESC = "\x1b";
 const PDF_ZOOM_IN_KEYS = new Set<string>([
@@ -122,11 +97,7 @@ export class PaperUi {
     if (agentResult.status === "fulfilled") {
       this.agentReady = true;
       this.status = "Ready";
-    } else {
-      this.agentError = `Agent unavailable: ${this.errorMessage(agentResult.reason)}`;
-      this.status = this.agentError;
-      this.messages.push({ role: "App", text: this.agentError });
-    }
+    } else this.agentFailed(agentResult.reason);
     this.renderFull();
 
     return completion;
@@ -189,17 +160,12 @@ export class PaperUi {
     }
 
     if (matchesKey(data, Key.ctrl("c"))) {
-      if (this.busy) {
-        this.agent.abort();
-        this.status = "Stopping response…";
-        this.renderPrompt();
-      } else this.stop();
+      if (this.busy) this.stopResponse();
+      else this.stop();
       return;
     }
     if (matchesKey(data, Key.escape) && this.busy) {
-      this.agent.abort();
-      this.status = "Stopping response…";
-      this.renderPrompt();
+      this.stopResponse();
       return;
     }
     if (matchesKey(data, Key.ctrl("pageUp"))) {
@@ -238,17 +204,22 @@ export class PaperUi {
     this.renderPrompt();
   }
 
+  private stopResponse(): void {
+    this.agent.abort();
+    this.status = "Stopping response…";
+    this.renderPrompt();
+  }
+
   private scrollPdf(direction: number): void {
     const amount = Math.max(1, Math.floor(this.dimensions.contentRows * this.cellHeight / 2));
-    if (!this.pdf.scroll(direction * amount, this.dimensions.contentRows * this.cellHeight)) return;
-    this.status = "Rendering…";
-    this.imageCurrent = false;
-    this.renderFull();
-    void this.refreshImage();
+    if (this.pdf.scroll(direction * amount, this.dimensions.contentRows * this.cellHeight)) this.rerenderPdf();
   }
 
   private changeZoom(direction: number): void {
-    if (!this.pdf.setZoom(direction, this.dimensions.contentRows * this.cellHeight)) return;
+    if (this.pdf.setZoom(direction, this.dimensions.contentRows * this.cellHeight)) this.rerenderPdf();
+  }
+
+  private rerenderPdf(): void {
     this.status = "Rendering…";
     this.imageCurrent = false;
     this.renderFull();
@@ -283,9 +254,7 @@ export class PaperUi {
     } catch (error) {
       if (generation !== this.renderGeneration || this.stopped) return;
       this.imageCurrent = false;
-      this.status = this.errorMessage(error);
-      this.messages.push({ role: "App", text: this.status });
-      this.conversationOffset = 0;
+      this.showStatus(this.errorMessage(error));
       this.renderFull();
     }
   }
@@ -296,8 +265,7 @@ export class PaperUi {
     this.input.setValue("");
 
     if (question === "/help") {
-      this.messages.push({ role: "App", text: HELP_TEXT });
-      this.conversationOffset = 0;
+      this.notify(HELP_TEXT);
       this.renderRight();
       return;
     }
@@ -325,16 +293,12 @@ export class PaperUi {
     }
 
     if (!this.agentReady) {
-      this.status = this.agentError ?? "Agent unavailable; use /model or authenticate with pi /login";
-      this.messages.push({ role: "App", text: this.status });
-      this.conversationOffset = 0;
+      this.showStatus(this.agentError ?? "Agent unavailable; use /model or authenticate with pi /login");
       this.renderRight();
       return;
     }
     if (!this.image || !this.imageCurrent) {
-      this.status = "Wait for the PDF section to finish rendering";
-      this.messages.push({ role: "App", text: this.status });
-      this.conversationOffset = 0;
+      this.showStatus("Wait for the PDF section to finish rendering");
       this.renderRight();
       return;
     }
@@ -377,10 +341,7 @@ export class PaperUi {
       this.status = "Ready";
     } catch (error) {
       if (this.stopped) return;
-      this.agentReady = false;
-      this.agentError = `Agent unavailable: ${this.errorMessage(error)}`;
-      this.status = this.agentError;
-      this.messages.push({ role: "App", text: this.agentError });
+      this.agentFailed(error);
     }
   }
 
@@ -389,16 +350,13 @@ export class PaperUi {
     const closed = input.length > 1 && input.at(-1) === input[0];
     const argument = (quoted && closed ? input.slice(1, -1) : input).trim();
     if (!argument || (quoted && !closed)) {
-      this.messages.push({ role: "App", text: 'Usage: /new "paper name" (also accepts an arXiv link, ID, or local PDF path)' });
-      this.conversationOffset = 0;
+      this.notify('Usage: /new "paper name" (also accepts an arXiv link, ID, or local PDF path)');
       this.renderRight();
       return;
     }
 
     this.busy = true;
-    this.status = `Loading ${argument}…`;
-    this.messages.push({ role: "App", text: this.status });
-    this.conversationOffset = 0;
+    this.showStatus(`Loading ${argument}…`);
     this.renderRight();
     let paper: LoadedPaper | undefined;
     let committed = false;
@@ -422,9 +380,7 @@ export class PaperUi {
       await this.papers.release(previousPdf);
     } catch (error) {
       if (this.stopped) return;
-      this.status = this.errorMessage(error);
-      this.messages.push({ role: "App", text: this.status });
-      this.conversationOffset = 0;
+      this.showStatus(this.errorMessage(error));
     } finally {
       if (paper && !committed) await this.papers.release(paper.pdf);
       this.busy = false;
@@ -438,28 +394,23 @@ export class PaperUi {
     this.renderPrompt();
     try {
       const [name, ...args] = command.trim().split(/\s+/);
-      if (name === "/model" || name === "/thinking") {
-        const options = await this.agent.getSelection(name);
-        const query = args.join(" ");
-        if (!options.items.length) throw new Error("No vision models available; authenticate with pi /login.");
-        const matches = matchingItems(options.items, query);
-        if (!query || matches.length > 1) {
-          this.openPicker(name, options, query);
-          return;
-        }
-        if (matches.length === 1) command = `${name} ${matches[0].value}`;
+      if (name !== "/model" && name !== "/thinking") throw new Error("Unknown command. Use /help for commands and keybindings.");
+      const options = await this.agent.getSelection(name);
+      const query = args.join(" ");
+      if (!options.items.length) throw new Error("No vision models available; authenticate with pi /login.");
+      const matches = matchingItems(options.items, query);
+      if (!query || matches.length > 1) {
+        this.openPicker(name, options, query);
+        return;
       }
-      const response = await this.agent.configure(command);
-      this.messages.push({ role: "App", text: response });
-      this.status = this.agent.ready ? "Ready" : (this.agentError ?? "Select a vision model with /model");
+      this.notify(await this.agent.select(name, matches[0]?.value ?? query));
+      this.status = this.idleStatus;
     } catch (error) {
-      this.status = this.errorMessage(error);
-      this.messages.push({ role: "App", text: this.status });
+      this.showStatus(this.errorMessage(error));
     } finally {
       this.agentReady = this.agent.ready;
       if (this.agentReady) this.agentError = undefined;
       this.busy = false;
-      if (!this.picker) this.conversationOffset = 0;
       this.renderRight();
     }
   }
@@ -468,12 +419,32 @@ export class PaperUi {
     this.selectionCommand = command;
     const close = () => {
       this.picker = undefined;
-      this.status = this.agent.ready ? "Ready" : (this.agentError ?? "Select a vision model with /model");
+      this.status = this.idleStatus;
     };
     this.picker = new SelectionPicker(options, query, (value) => {
       close();
       void this.configureAgent(`${command} ${value}`);
     }, close);
+  }
+
+  private get idleStatus(): string {
+    return this.agent.ready ? "Ready" : (this.agentError ?? "Select a vision model with /model");
+  }
+
+  private notify(text: string): void {
+    this.messages.push({ role: "App", text });
+    this.conversationOffset = 0;
+  }
+
+  private showStatus(text: string): void {
+    this.status = text;
+    this.notify(text);
+  }
+
+  private agentFailed(error: unknown): void {
+    this.agentReady = false;
+    this.agentError = `Agent unavailable: ${this.errorMessage(error)}`;
+    this.showStatus(this.agentError);
   }
 
   private get rightTitle(): string {

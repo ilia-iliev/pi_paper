@@ -63,21 +63,12 @@ test("picker options include only vision models and supported thinking levels wi
   assert.deepEqual(saved, []);
 });
 
-test("model selection accepts a short case-insensitive query", async (t) => {
+test("model selection is case-insensitive", async (t) => {
   const { agent, harness, otherVision, saved } = await agentFixture(t);
   await agent.start();
-  await agent.configure(`/model ${otherVision.id.slice(-8).toUpperCase()}`);
+  await agent.select("/model", `${otherVision.provider}/${otherVision.id}`.toUpperCase());
   assert.equal(harness.session.model!.id, otherVision.id);
   assert.equal(saved.at(-1)?.defaultModel, otherVision.id);
-});
-
-test("ambiguous model queries do not silently select or save", async (t) => {
-  const { agent, harness, saved } = await agentFixture(t);
-  await agent.start();
-  const model = harness.session.model;
-  await assert.rejects(agent.configure("/model a"), /Multiple models match/);
-  assert.equal(harness.session.model, model);
-  assert.deepEqual(saved, []);
 });
 
 test("model and thinking commands persist only paper defaults, preserving context", async (t) => {
@@ -85,10 +76,10 @@ test("model and thinking commands persist only paper defaults, preserving contex
   await agent.start();
   const originalGlobal = global.getGlobalSettings();
   const originalSession = harness.session;
-  await agent.configure(`/model ${otherVision.provider}/${otherVision.id}`);
+  await agent.select("/model", `${otherVision.provider}/${otherVision.id}`);
   assert.equal(harness.session, originalSession);
   const level = harness.session.getAvailableThinkingLevels()[0];
-  await agent.configure(`/thinking ${level}`);
+  await agent.select("/thinking", level);
   assert.deepEqual(saved.at(-1), {
     defaultProvider: otherVision.provider,
     defaultModel: otherVision.id,
@@ -105,9 +96,9 @@ test("unsupported selections do not change model, thinking, or saved defaults", 
   await agent.start();
   const model = harness.session.model;
   const level = harness.session.thinkingLevel;
-  await assert.rejects(agent.configure(`/model ${text.provider}/${text.id}`), /does not support images/);
-  await assert.rejects(agent.configure("/model missing/model"), /Model unavailable/);
-  await assert.rejects(agent.configure("/thinking impossible"), /Unsupported thinking level/);
+  await assert.rejects(agent.select("/model", `${text.provider}/${text.id}`), /does not support images/);
+  await assert.rejects(agent.select("/model", "missing/model"), /Model unavailable/);
+  await assert.rejects(agent.select("/thinking", "impossible"), /Unsupported thinking level/);
   assert.equal(harness.session.model, model);
   assert.equal(harness.session.thinkingLevel, level);
   assert.deepEqual(saved, []);
@@ -118,14 +109,14 @@ test("text-only startup fails visibly and /model can recover", async (t) => {
   global.setDefaultModelAndProvider(text.provider, text.id);
   await assert.rejects(agent.start(), /does not support images/);
   assert.equal(agent.ready, false);
-  await agent.configure(`/model ${vision.provider}/${vision.id}`);
+  await agent.select("/model", `${vision.provider}/${vision.id}`);
   assert.equal(agent.ready, true);
 });
 
 test("unknown saved model fails visibly and /model can recover without a session", async (t) => {
   const { agent, vision } = await agentFixture(t, { defaultProvider: "missing", defaultModel: "model" });
   await assert.rejects(agent.start(), /Unknown model missing\/model/);
-  await agent.configure(`/model ${vision.provider}/${vision.id}`);
+  await agent.select("/model", `${vision.provider}/${vision.id}`);
   assert.equal(agent.ready, true);
 });
 
@@ -134,7 +125,7 @@ test("blocked images fail at startup and before model selection", async (t) => {
   global.setBlockImages(true);
   await assert.rejects(agent.start(), /Images are blocked/);
   assert.equal(agent.ready, false);
-  await assert.rejects(agent.configure(`/model ${vision.provider}/${vision.id}`), /Images are blocked/);
+  await assert.rejects(agent.select("/model", `${vision.provider}/${vision.id}`), /Images are blocked/);
 });
 
 test("cost includes SDK session totals and survives clearing the conversation", async (t) => {
@@ -146,11 +137,4 @@ test("cost includes SDK session totals and survives clearing the conversation", 
   assert.match(agent.summary, / · \$0\.1234$/);
   t.mock.method(harness.session, "getSessionStats", () => ({ cost: 0.01 }));
   assert.match(agent.summary, / · \$0\.1334$/);
-});
-
-test("unknown slash commands never save defaults", async (t) => {
-  const { agent, saved } = await agentFixture(t);
-  await agent.start();
-  await assert.rejects(agent.configure("/unknown"), /Unknown command/);
-  assert.deepEqual(saved, []);
 });
