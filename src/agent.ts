@@ -42,6 +42,14 @@ function contentText(content: string | readonly { type: string; text?: string }[
   return typeof content === "string" ? content : content.map((part) => part.type === "text" ? part.text : "").join("");
 }
 
+function lastImage(messages: readonly SessionMessage[]): string | undefined {
+  for (const message of messages.toReversed()) {
+    if (message.role !== "user" || typeof message.content === "string") continue;
+    const image = message.content.findLast((part) => part.type === "image");
+    if (image) return image.data;
+  }
+}
+
 function historyMessage(message: SessionMessage): ConversationMessage[] {
   if (message.role === "user") {
     const prompt = contentText(message.content);
@@ -66,6 +74,8 @@ export class PaperAgent {
   private modelRuntime?: ModelRuntime;
   private previousCost = 0;
   private validated = false;
+  /** The last attached PNG and the copy the session stored, which may be resized. */
+  private sentImage?: { png: string; stored: string };
   private readonly settings = new PaperSettings();
 
   constructor(private readonly events: AgentReplyEvents) {}
@@ -216,10 +226,15 @@ export class PaperAgent {
   async ask(question: string, pngBase64: string, context: string): Promise<void> {
     if (!this.session || !this.ready) throw new Error("Agent is not ready");
     this.validateVision(this.session.model);
-    await this.session.prompt(`${context}${QUESTION_MARKER}${question}`, {
-      images: [{ type: "image", data: pngBase64, mimeType: "image/png" }],
+    const unchanged = this.sentImage?.png === pngBase64 && this.sentImage.stored === lastImage(this.session.messages);
+    const note = unchanged ? " Unchanged since the last attached image." : "";
+    await this.session.prompt(`${context}${note}${QUESTION_MARKER}${question}`, {
+      images: unchanged ? [] : [{ type: "image", data: pngBase64, mimeType: "image/png" }],
       expandPromptTemplates: false,
     });
+    if (unchanged) return;
+    const stored = lastImage(this.session.messages);
+    this.sentImage = stored ? { png: pngBase64, stored } : undefined;
   }
 
   /** The conversation restored from the session file, as displayed. */

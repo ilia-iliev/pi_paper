@@ -171,3 +171,25 @@ test("a paper session survives restarting and /clear deletes it", async (t) => {
   assert.deepEqual(restored.history, []);
   assert.equal(existsSync(path), false);
 });
+
+test("an unchanged section is attached once until the conversation forgets it", async (t) => {
+  const { agent, harness } = await agentFixture(t);
+  await agent.start();
+  // The SDK stores a resized copy of each prompt image.
+  const prompt = t.mock.method(harness.session, "prompt", async (text: string, options: { images: { data: string }[] }) => {
+    harness.session.messages.push({
+      role: "user", timestamp: Date.now(),
+      content: [{ type: "text", text }, ...options.images.map((image) => ({ ...image, data: `resized ${image.data}` }))],
+    } as AgentSession["messages"][number]);
+  });
+
+  await agent.ask("What?", "same", "Visible section: page 1.");
+  await agent.ask("Why?", "same", "Visible section: page 1.");
+  await agent.ask("And this?", "other", "Visible section: page 2.");
+  harness.session.messages.length = 0;
+  await agent.ask("Again?", "other", "Visible section: page 2.");
+
+  const calls = prompt.mock.calls.map((call) => call.arguments);
+  assert.deepEqual(calls.map(([, options]) => options.images.map((image) => image.data)), [["same"], [], ["other"], ["other"]]);
+  assert.equal(calls[1][0], "Visible section: page 1. Unchanged since the last attached image.\n\nQuestion: Why?");
+});
