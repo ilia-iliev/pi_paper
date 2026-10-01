@@ -5,7 +5,7 @@ import { ESC, fullFrame, layout, leftTitleFrame, pdfTitle, promptFrame, rightFra
 import { PdfDocument, type RenderedSection } from "./pdf.js";
 import { PaperLibrary, type LoadedPaper } from "./paper.js";
 import type { PaperState } from "./paper-state.js";
-import { matchingItems, renderInputLine, SelectionPicker, type SelectionCommand, type SelectionOptions } from "./selection.js";
+import { matchingItems, renderInputLine, SelectionPicker, wrapInput, type SelectionCommand, type SelectionOptions, type WrappedInput } from "./selection.js";
 import { HELP_TEXT } from "./help.js";
 
 const PDF_ZOOM_IN_KEYS = new Set<string>([
@@ -16,6 +16,7 @@ const PDF_ZOOM_OUT_KEYS = new Set<string>([Key.alt("-"), Key.ctrl("-")]);
 // Fallback for terminals that never answer the cell size query.
 const CELL_SIZE_TIMEOUT_MS = 250;
 const FRAME_MS = 16;
+const MAX_PROMPT_SHARE = 0.3;
 
 export class PaperUi {
   private readonly terminal = new ProcessTerminal();
@@ -36,6 +37,7 @@ export class PaperUi {
   private cellWidth = 8;
   private cellHeight = 16;
   private conversationOffset = 0;
+  private promptRows = 1;
   private busy = false;
   private agentReady = false;
   private agentError?: string;
@@ -97,7 +99,7 @@ export class PaperUi {
   }
 
   private get dimensions() {
-    return layout(this.terminal.columns, this.terminal.rows);
+    return layout(this.terminal.columns, this.terminal.rows, this.promptRows);
   }
 
   /** Resolves once the terminal reports its pixel size, so no render uses a stale cell size. */
@@ -117,6 +119,20 @@ export class PaperUi {
 
   private handleResize(): void {
     if (this.terminal.columns < 20 || this.terminal.rows < 8) return;
+    this.promptRows = this.promptInput().lines.length;
+    this.relayout();
+  }
+
+  /** Grows or shrinks the prompt box to fit the question; true when the layout changed. */
+  private fitPrompt(): boolean {
+    const rows = this.promptInput().lines.length;
+    if (rows === this.promptRows) return false;
+    this.promptRows = rows;
+    this.relayout();
+    return true;
+  }
+
+  private relayout(): void {
     this.image = undefined;
     this.imageCurrent = false;
     this.renderFull();
@@ -182,7 +198,7 @@ export class PaperUi {
       return;
     }
     this.input.handleInput(data);
-    this.renderPrompt();
+    if (!this.fitPrompt()) this.renderPrompt();
   }
 
   private scrollPdf(direction: number): void {
@@ -252,6 +268,7 @@ export class PaperUi {
     const question = this.input.getValue().trim();
     if (!question || this.busy) return;
     this.input.setValue("");
+    this.fitPrompt();
 
     if (question === "/help") {
       this.notify(HELP_TEXT);
@@ -455,9 +472,15 @@ export class PaperUi {
     return this.image ? `${ESC}[2;${2 + this.image.leftCells}H${this.image.sixel}` : "";
   }
 
+  private promptInput(): WrappedInput {
+    const width = this.terminal.columns - 5;
+    if (!this.picker) return wrapInput(this.input, width, Math.max(1, Math.floor(this.terminal.rows * MAX_PROMPT_SHARE)));
+    const { text, cursor } = renderInputLine(this.picker.input, width);
+    return { lines: [text], row: 0, col: cursor };
+  }
+
   private promptFrame(): string {
-    const d = this.dimensions;
-    return promptFrame(d, this.agent.summary, renderInputLine(this.picker?.input ?? this.input, d.columns - 5));
+    return promptFrame(this.dimensions, this.agent.summary, this.promptInput());
   }
 
   private renderFull(): void {

@@ -13,7 +13,7 @@ Alt++ / Alt+= / Alt+- — Zoom the PDF (50–250%)
 Ctrl++ / Ctrl+= / Ctrl+- — Zoom aliases if the terminal passes them through
 Enter — Submit a question or command
 Esc — Stop the current response
-Ctrl+C — Stop a response, or quit when idle
+Ctrl+C — Stop a response, clear input, or quit when empty
 ←/→ — Move the input cursor
 Home / Ctrl+A — Start of input
 End / Ctrl+E — End of input

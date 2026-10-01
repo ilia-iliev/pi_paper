@@ -192,6 +192,19 @@ for (const command of ["/model", "/thinking", "/model sol"]) {
   });
 }
 
+test("Ctrl+C clears a non-empty prompt, then quits when it is empty", (t) => {
+  const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness & { stop(): void };
+  t.mock.method(ui, "renderPrompt", () => {});
+  const stop = t.mock.method(ui, "stop", () => {});
+  ui.input.setValue("draft question");
+  ui.handleInput("\x03");
+  assert.equal(ui.input.getValue(), "");
+  assert.equal(stop.mock.callCount(), 0);
+  ui.handleInput("\x03");
+  assert.equal(stop.mock.callCount(), 1);
+});
+
 for (const cancel of ["\x1b", "\x03"]) {
   test("picker cancellation restores conversation without saving or quitting", async (t) => {
     const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
@@ -389,4 +402,23 @@ test("questions and app messages remain literal text, and code is not interprete
   assert.ok(text.includes("An error with **literal** markers"));
   assert.ok(text.includes(String.raw`\[x_i\]`));
   assert.ok(!text.includes("xᵢ"));
+});
+
+test("long questions wrap onto more prompt rows instead of scrolling sideways", (t) => {
+  const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness;
+  Object.defineProperties(ui.terminal, { columns: { value: 60 }, rows: { value: 20 } });
+  let output = "";
+  t.mock.method(ui.terminal, "write", (data: string) => { output += data; });
+  t.mock.method(ui, "refreshImage", async () => {});
+  const question = "a".repeat(120);
+  for (const character of question) ui.handleInput(character);
+  output = "";
+  ui.renderPrompt();
+  const rows = [...output.matchAll(/\x1b\[(\d+);1H([^\x1b]*(?:\x1b\[[0-9;]*m[^\x1b]*)*)/g)]
+    .map(([, row, text]) => [Number(row), stripVTControlCharacters(text)] as const);
+  const text = rows.filter(([, line]) => line.startsWith("│")).map(([, line]) => line.slice(1, -1).replace(/^ [> ] /, "").trimEnd()).join("");
+  assert.equal(text, question);
+  assert.equal(rows.at(-1)![0], 20);
+  assert.match(output, /\x1b\[19;15H\x1b\[\?25h$/);
 });

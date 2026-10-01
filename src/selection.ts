@@ -23,6 +23,45 @@ export function renderInputLine(input: Input, width: number): { text: string; cu
   return { text: line.replace(CURSOR_MARKER, ""), cursor: visibleWidth(line.slice(0, marker)) };
 }
 
+export interface WrappedInput {
+  lines: string[];
+  row: number;
+  col: number;
+}
+
+const segmenter = new Intl.Segmenter();
+
+/** Wraps the input value to `width`, showing at most `maxRows` rows around the cursor. */
+export function wrapInput(input: Input, width: number, maxRows: number): WrappedInput {
+  const value = input.getValue();
+  // Rendered wide enough to never scroll, the marker sits at the cursor's string index.
+  const cursor = input.render(visibleWidth(value) + 2)[0].indexOf(CURSOR_MARKER);
+  const lines = [""];
+  let lineWidth = 0;
+  let row = 0;
+  let col = 0;
+  let index = 0;
+  const fit = (segmentWidth: number) => {
+    if (lineWidth + segmentWidth <= width) return;
+    lines.push("");
+    lineWidth = 0;
+  };
+  for (const { segment } of segmenter.segment(value)) {
+    const segmentWidth = visibleWidth(segment);
+    fit(segmentWidth);
+    if (index === cursor) [row, col] = [lines.length - 1, lineWidth];
+    lines[lines.length - 1] += segment;
+    lineWidth += segmentWidth;
+    index += segment.length;
+  }
+  if (cursor === value.length) {
+    fit(1);
+    [row, col] = [lines.length - 1, lineWidth];
+  }
+  const start = Math.max(0, Math.min(row, lines.length - maxRows));
+  return { lines: lines.slice(start, start + maxRows), row: row - start, col };
+}
+
 const accent = (text: string) => `\x1b[36m${text}\x1b[0m`;
 const dim = (text: string) => `\x1b[2m${text}\x1b[0m`;
 

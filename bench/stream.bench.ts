@@ -5,7 +5,7 @@ import { layout, rightFrame } from "../src/frame.js";
 const paragraph = "The **attention** function maps a query and key-value pairs to an output, $\\text{softmax}(QK^T/\\sqrt{d_k})V$, where `d_k` is the key dimension. ";
 const reply = Array.from({ length: 12 }, (_, i) => `### Step ${i}\n\n${paragraph.repeat(3)}\n\n| a | b |\n|---|---|\n| ${i} | x |\n`).join("\n");
 const tokens = reply.match(/.{1,4}/gs)!;
-const d = layout(200, 60);
+const d = layout(200, 60, 1);
 const renderer = new ConversationRenderer();
 const messages: ConversationMessage[] = [{ role: "You", text: "Explain" }, { role: "Agent", text: "" }];
 const start = performance.now();

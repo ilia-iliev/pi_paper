@@ -1,4 +1,5 @@
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { WrappedInput } from "./selection.js";
 
 export const ESC = "\x1b";
 const color = {
@@ -16,8 +17,8 @@ interface Layout {
   contentRows: number;
 }
 
-export function layout(columns: number, rows: number): Layout {
-  const mainHeight = rows - 3;
+export function layout(columns: number, rows: number, promptRows: number): Layout {
+  const mainHeight = rows - 2 - promptRows;
   const leftWidth = Math.floor(columns * 0.64);
   return {
     columns,
@@ -75,11 +76,16 @@ export function rightFrame(d: Layout, rightTitle: string, right: string[]): stri
   return output;
 }
 
-export function promptFrame(d: Layout, summary: string, input: { text: string; cursor: number }): string {
+export function promptFrame(d: Layout, summary: string, input: WrappedInput): string {
   const title = truncate(summary, Math.max(5, d.columns - 6));
+  const width = d.columns - 5;
   let output = `${ESC}[${d.mainHeight + 1};1H${color.dim}┌${borderSection(title, d.columns - 2)}┐${color.reset}`;
-  output += `${ESC}[${d.mainHeight + 2};1H${color.dim}│${color.reset} ${color.cyan}>${color.reset} ${input.text}${color.dim}│${color.reset}`;
-  output += `${ESC}[${d.mainHeight + 3};1H${color.dim}└${"─".repeat(d.columns - 2)}┘${color.reset}`;
-  output += `${ESC}[${d.mainHeight + 2};${5 + input.cursor}H${ESC}[?25h`;
+  input.lines.forEach((line, row) => {
+    const marker = row === 0 ? `${color.cyan}>${color.reset}` : " ";
+    const padding = " ".repeat(Math.max(0, width - visibleWidth(line)));
+    output += `${ESC}[${d.mainHeight + 2 + row};1H${color.dim}│${color.reset} ${marker} ${line}${padding}${color.dim}│${color.reset}`;
+  });
+  output += `${ESC}[${d.mainHeight + 2 + input.lines.length};1H${color.dim}└${"─".repeat(d.columns - 2)}┘${color.reset}`;
+  output += `${ESC}[${d.mainHeight + 2 + input.row};${5 + input.col}H${ESC}[?25h`;
   return output;
 }
