@@ -5,7 +5,7 @@ import { isKittyProtocolActive, setKittyProtocolActive, visibleWidth, type Input
 import { PaperAgent } from "../src/agent.js";
 import { PdfDocument } from "../src/pdf.js";
 import { PaperUi } from "../src/ui.js";
-import type { SelectionPicker } from "../src/selection.js";
+import { renderInputLine, type SelectionPicker } from "../src/selection.js";
 
 interface UiHarness {
   handleInput(data: string): void;
@@ -76,6 +76,13 @@ test("zoom ignores Kitty key releases but accepts repeats", (t) => {
   assert.equal(pdf.zoom, 125);
   ui.handleInput("\x1b[45;3:3u");
   assert.equal(pdf.zoom, 125);
+});
+
+test("question input has no prompt of its own beside the frame's marker", () => {
+  const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
+  const ui = new PaperUi(pdf, "Paper") as unknown as UiHarness;
+  ui.input.setValue("hi");
+  assert.equal(stripVTControlCharacters(renderInputLine(ui.input, 20).text).trimEnd(), "hi");
 });
 
 test("unmodified plus and minus remain available in questions", (t) => {

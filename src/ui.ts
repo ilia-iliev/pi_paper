@@ -18,7 +18,7 @@ export class PaperUi {
   private readonly agent: PaperAgent;
   private readonly messages: ConversationMessage[] = [];
   private readonly conversation = new ConversationRenderer();
-  private readonly input = new Input();
+  private readonly input = new Input({ prompt: "" });
   private picker?: SelectionPicker;
   private selectionCommand: SelectionCommand = "/model";
   private image?: RenderedSection;
