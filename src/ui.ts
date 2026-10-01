@@ -1,52 +1,23 @@
-import { Input, isKeyRelease, Key, matchesKey, parseKey, ProcessTerminal, Markdown, type MarkdownTheme, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { Input, isKeyRelease, Key, matchesKey, parseKey, ProcessTerminal } from "@earendil-works/pi-tui";
 import { PaperAgent } from "./agent.js";
+import { ConversationRenderer, type ConversationMessage } from "./conversation.js";
+import { ESC, fullFrame, layout, pdfTitle, promptFrame, rightFrame } from "./frame.js";
 import { PdfDocument, type RenderedSection } from "./pdf.js";
 import { PaperLibrary, type LoadedPaper } from "./paper.js";
 import { matchingItems, renderInputLine, SelectionPicker, type SelectionCommand, type SelectionOptions } from "./selection.js";
 import { HELP_TEXT } from "./help.js";
-import { truncate } from "./text.js";
 
-interface ConversationMessage {
-  role: "You" | "Agent" | "App";
-  text: string;
-}
-
-const ESC = "\x1b";
 const PDF_ZOOM_IN_KEYS = new Set<string>([
   Key.alt("+"), Key.alt("="), Key.shiftAlt("+"), Key.shiftAlt("="),
   Key.ctrl("+"), Key.ctrl("="), Key.shiftCtrl("+"), Key.shiftCtrl("="),
 ]);
 const PDF_ZOOM_OUT_KEYS = new Set<string>([Key.alt("-"), Key.ctrl("-")]);
-const color = {
-  reset: `${ESC}[0m`,
-  dim: `${ESC}[2m`,
-  cyan: `${ESC}[36m`,
-};
-
-const plain = (text: string) => text;
-const style = (open: number, close: number) => (text: string) => `${ESC}[${open}m${text}${ESC}[${close}m`;
-const markdownTheme: MarkdownTheme = {
-  heading: style(1, 22),
-  link: style(36, 39),
-  linkUrl: style(2, 22),
-  code: style(36, 39),
-  codeBlock: plain,
-  codeBlockBorder: style(2, 22),
-  quote: plain,
-  quoteBorder: style(2, 22),
-  hr: style(2, 22),
-  listBullet: plain,
-  bold: style(1, 22),
-  italic: style(3, 23),
-  strikethrough: style(9, 29),
-  underline: style(4, 24),
-};
 
 export class PaperUi {
   private readonly terminal = new ProcessTerminal();
   private readonly agent: PaperAgent;
   private readonly messages: ConversationMessage[] = [];
-  private readonly markdown = new WeakMap<ConversationMessage, { text: string; renderer: Markdown }>();
+  private readonly conversation = new ConversationRenderer();
   private readonly input = new Input();
   private picker?: SelectionPicker;
   private selectionCommand: SelectionCommand = "/model";
@@ -111,19 +82,7 @@ export class PaperUi {
   }
 
   private get dimensions() {
-    const columns = this.terminal.columns;
-    const rows = this.terminal.rows;
-    const mainHeight = rows - 3;
-    const leftWidth = Math.floor(columns * 0.64);
-    return {
-      columns,
-      rows,
-      mainHeight,
-      leftWidth,
-      leftInner: leftWidth - 2,
-      rightInner: columns - leftWidth - 1,
-      contentRows: mainHeight - 2,
-    };
+    return layout(this.terminal.columns, this.terminal.rows);
   }
 
   private queryCellSize(): void {
@@ -427,35 +386,8 @@ export class PaperUi {
     return this.picker ? this.picker.render(d.rightInner - 1, d.contentRows) : this.visibleConversation();
   }
 
-  private padRight(text: string): string {
-    const width = this.dimensions.rightInner - 1;
-    const clipped = truncateToWidth(text, width, "");
-    return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
-  }
-
-  private messageLines(message: ConversationMessage, width: number): string[] {
-    const text = message.text || (message.role === "Agent" ? "…" : "");
-    if (message.role !== "Agent") return wrapTextWithAnsi(text, width);
-    let cached = this.markdown.get(message);
-    if (!cached) {
-      cached = { text, renderer: new Markdown(text, 0, 0, markdownTheme) };
-      this.markdown.set(message, cached);
-    } else if (cached.text !== text) {
-      cached.renderer.setText(text);
-      cached.text = text;
-    }
-    return cached.renderer.render(width);
-  }
-
   private conversationLines(): string[] {
-    const width = Math.max(1, this.dimensions.rightInner - 2);
-    const lines: string[] = [];
-    for (const message of this.messages) {
-      lines.push(`${message.role}:`);
-      lines.push(...this.messageLines(message, width));
-      lines.push("");
-    }
-    return lines;
+    return this.conversation.lines(this.messages, Math.max(1, this.dimensions.rightInner - 2));
   }
 
   private visibleConversation(): string[] {
@@ -469,43 +401,22 @@ export class PaperUi {
   private renderFull(): void {
     if (this.stopped) return;
     const d = this.dimensions;
-    const leftTitle = `PDF · ${truncate(this.title, Math.max(4, d.leftInner - 28))} · ${this.pdf.zoom}% · ${this.pdf.page}/${this.pdf.metadata.pages}`;
-    const output: string[] = [`${ESC}[?25l${ESC}[H`];
-    output.push(`${color.dim}┌${this.borderSection(leftTitle, d.leftInner)}┬${this.borderSection(this.rightTitle, d.rightInner)}┐${color.reset}`);
-    const conversation = this.rightLines();
-    for (let row = 0; row < d.contentRows; row++) {
-      output.push(`\r\n${color.dim}│${" ".repeat(d.leftInner)}│${color.reset} ${this.padRight(conversation[row] ?? "")}${color.dim}│${color.reset}`);
-    }
-    output.push(`\r\n${color.dim}└${"─".repeat(d.leftInner)}┴${"─".repeat(d.rightInner)}┘${color.reset}`);
-    this.terminal.write(output.join(""));
+    const title = pdfTitle(d, this.title, this.pdf.zoom, this.pdf.page, this.pdf.metadata.pages);
+    this.terminal.write(fullFrame(d, title, this.rightTitle, this.rightLines()));
     this.renderPrompt();
     this.drawImage();
   }
 
   private renderRight(): void {
     if (this.stopped) return;
-    const d = this.dimensions;
-    const conversation = this.rightLines();
-    let output = `${ESC}[?25l`;
-    output += `${ESC}[1;${d.leftWidth}H${color.dim}┬${this.borderSection(this.rightTitle, d.rightInner)}┐${color.reset}`;
-    for (let row = 0; row < d.contentRows; row++) {
-      output += `${ESC}[${row + 2};${d.leftWidth}H${color.dim}│${color.reset} ${this.padRight(conversation[row] ?? "")}${color.dim}│${color.reset}`;
-    }
-    output += `${ESC}[${d.mainHeight};${d.leftWidth}H${color.dim}┴${"─".repeat(d.rightInner)}┘${color.reset}`;
-    this.terminal.write(output);
+    this.terminal.write(rightFrame(this.dimensions, this.rightTitle, this.rightLines()));
     this.renderPrompt();
   }
 
   private renderPrompt(): void {
     if (this.stopped) return;
     const d = this.dimensions;
-    const summary = truncate(this.agent.summary, Math.max(5, d.columns - 6));
-    const line = renderInputLine(this.picker?.input ?? this.input, d.columns - 5);
-    let output = `${ESC}[${d.mainHeight + 1};1H${color.dim}┌${this.borderSection(summary, d.columns - 2)}┐${color.reset}`;
-    output += `${ESC}[${d.mainHeight + 2};1H${color.dim}│${color.reset} ${color.cyan}>${color.reset} ${line.text}${color.dim}│${color.reset}`;
-    output += `${ESC}[${d.mainHeight + 3};1H${color.dim}└${"─".repeat(d.columns - 2)}┘${color.reset}`;
-    output += `${ESC}[${d.mainHeight + 2};${5 + line.cursor}H${ESC}[?25h`;
-    this.terminal.write(output);
+    this.terminal.write(promptFrame(d, this.agent.summary, renderInputLine(this.picker?.input ?? this.input, d.columns - 5)));
   }
 
   private drawImage(): void {
@@ -513,12 +424,6 @@ export class PaperUi {
     const column = 2 + this.image.leftCells;
     this.terminal.write(`${ESC}7${ESC}[2;${column}H${this.image.sixel}${ESC}8`);
     this.renderPrompt();
-  }
-
-  private borderSection(title: string, width: number): string {
-    if (width < 3) return "─".repeat(Math.max(0, width));
-    const label = ` ${truncate(title, width - 2)} `;
-    return label + "─".repeat(Math.max(0, width - [...label].length));
   }
 
   private errorMessage(error: unknown): string {
