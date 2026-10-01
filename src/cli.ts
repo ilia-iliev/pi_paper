@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   let ui: PaperUi | undefined;
   try {
     const paper = await papers.open(argument, (source) => {
-      if (!source.localPath) process.stderr.write(`Downloading ${source.label} (${source.url})…\n`);
+      process.stderr.write(`Downloading ${source.label} (${source.url})…\n`);
     });
     ui = new PaperUi(paper, papers);
     const stop = () => ui?.stop();

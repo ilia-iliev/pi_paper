@@ -13,6 +13,10 @@ function location(source: PaperSource): string {
   return source.localPath ?? source.url!;
 }
 
+export function sourceKey(source: PaperSource): string {
+  return createHash("sha256").update(location(source)).digest("hex").slice(0, 16);
+}
+
 export class PaperHistory {
   constructor(private readonly directory = join(
     process.env.XDG_STATE_HOME || join(homedir(), ".local", "state"),
@@ -34,7 +38,6 @@ export class PaperHistory {
   }
 
   state(source: PaperSource): PaperState {
-    const key = createHash("sha256").update(location(source)).digest("hex").slice(0, 16);
-    return new PaperState(join(this.directory, "papers", key));
+    return new PaperState(join(this.directory, "papers", sourceKey(source)));
   }
 }

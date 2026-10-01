@@ -1,8 +1,9 @@
-import { mkdtemp, open, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { copyFile, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { acquirePaper, type PaperSource } from "./paper-source.js";
-import { PaperHistory } from "./history.js";
+import { PaperHistory, sourceKey } from "./history.js";
 import type { PaperState } from "./paper-state.js";
 import { inspectPdf, PdfDocument } from "./pdf.js";
 
@@ -26,7 +27,10 @@ async function validatePdf(path: string): Promise<void> {
 export class PaperLibrary {
   private readonly directories = new Map<string, string>();
 
-  constructor(private readonly history = new PaperHistory()) {}
+  constructor(
+    private readonly history = new PaperHistory(),
+    private readonly cacheDirectory = join(tmpdir(), "pi-paper-cache"),
+  ) {}
 
   async open(argument?: string, onDownload?: (source: PaperSource) => void): Promise<LoadedPaper> {
     const source = await this.history.source(argument);
@@ -35,10 +39,10 @@ export class PaperLibrary {
     this.directories.set(path, directory);
     let loaded = false;
     try {
-      onDownload?.(source);
-      await acquirePaper(source, path);
+      await this.acquire(source, path, onDownload);
       await validatePdf(path);
       const pdf = new PdfDocument(path, await inspectPdf(path));
+      if (source.url) await this.cache(source, path);
       const state = this.history.state(source);
       const position = await state.position();
       if (position) pdf.restore(position);
@@ -47,6 +51,22 @@ export class PaperLibrary {
     } finally {
       if (!loaded) await this.remove(path);
     }
+  }
+
+  private cached(source: PaperSource): string {
+    return join(this.cacheDirectory, `${sourceKey(source)}.pdf`);
+  }
+
+  private async acquire(source: PaperSource, path: string, onDownload?: (source: PaperSource) => void): Promise<void> {
+    if (source.url && existsSync(this.cached(source))) return copyFile(this.cached(source), path);
+    if (source.url) onDownload?.(source);
+    await acquirePaper(source, path);
+  }
+
+  private async cache(source: PaperSource, path: string): Promise<void> {
+    if (existsSync(this.cached(source))) return;
+    await mkdir(this.cacheDirectory, { recursive: true });
+    await copyFile(path, this.cached(source));
   }
 
   async remember(paper: LoadedPaper): Promise<void> {

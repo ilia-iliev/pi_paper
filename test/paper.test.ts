@@ -27,7 +27,7 @@ function minimalPdf(): string {
 async function fixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), "pi-paper-library-test-"));
   const history = new PaperHistory(join(directory, "state"));
-  const library = new PaperLibrary(history);
+  const library = new PaperLibrary(history, join(directory, "cache"));
   t.after(async () => {
     await library.dispose();
     await rm(directory, { recursive: true, force: true });
@@ -68,6 +68,25 @@ test("title lookup and downloading use the same loader; history changes only whe
   await library.remember(paper);
   assert.equal((await history.source()).url, paper.source.url);
   await library.dispose();
+  assert.equal(existsSync(paper.pdf.path), false);
+});
+
+test("downloaded PDFs are cached and reused; a missing cache downloads again", async (t) => {
+  const { directory, history } = await fixture(t);
+  const fetch = t.mock.method(globalThis, "fetch", async () => new Response(minimalPdf()));
+  const downloads: string[] = [];
+  const onDownload = (source: { label: string }) => downloads.push(source.label);
+  const library = new PaperLibrary(history, join(directory, "cache"));
+  await library.open("2401.12345", onDownload);
+  await library.open("2401.12345", onDownload);
+  await library.dispose();
+  assert.equal(fetch.mock.callCount(), 1);
+  assert.deepEqual(downloads, ["2401.12345"]);
+  const restarted = new PaperLibrary(history, join(directory, "empty-cache"));
+  const paper = await restarted.open("2401.12345", onDownload);
+  await restarted.dispose();
+  assert.equal(fetch.mock.callCount(), 2);
+  assert.deepEqual(downloads, ["2401.12345", "2401.12345"]);
   assert.equal(existsSync(paper.pdf.path), false);
 });
 
