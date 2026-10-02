@@ -5,7 +5,7 @@ import { isKittyProtocolActive, setKittyProtocolActive, visibleWidth, type Input
 import { PaperAgent } from "../src/agent.js";
 import { PdfDocument, type PdfPosition } from "../src/pdf.js";
 import type { PaperState } from "../src/paper-state.js";
-import { PaperUi } from "../src/ui.js";
+import { ARROW_SCROLL_PIXELS, PaperUi } from "../src/ui.js";
 import { renderInputLine, type SelectionPicker } from "../src/selection.js";
 
 interface UiHarness {
@@ -487,4 +487,26 @@ test("Ctrl+J and Shift+Enter insert newlines that start new prompt rows", (t) =>
     .filter((line) => line.startsWith("│"))
     .map((line) => line.slice(1, -1).replace(/^ [> ] /, "").trimEnd());
   assert.deepEqual(rows, ["ab", "cd", "e"]);
+});
+
+test("Up/Down scroll the selected panel by a fixed number of pixels", (t) => {
+  const pdf = new PdfDocument("unused", { pages: 2, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness;
+  t.mock.method(ui.terminal, "write", () => {});
+  t.mock.method(ui, "refreshImage", async () => {});
+  t.mock.method(ui.state, "savePosition", async () => {});
+  ui.messages.push({ role: "Agent", text: Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n\n") });
+
+  ui.handleInput("\x1b[B");
+  ui.handleInput("\x1b[B");
+  assert.equal(pdf.position.y, 2 * ARROW_SCROLL_PIXELS);
+  ui.handleInput("\x1b[A");
+  assert.equal(pdf.position.y, ARROW_SCROLL_PIXELS);
+
+  ui.handleInput("\t");
+  ui.handleInput("\x1b[A");
+  assert.equal(ui.conversationOffset, ARROW_SCROLL_PIXELS / 16);
+  ui.handleInput("\x1b[B");
+  assert.equal(ui.conversationOffset, 0);
+  assert.equal(pdf.position.y, ARROW_SCROLL_PIXELS);
 });

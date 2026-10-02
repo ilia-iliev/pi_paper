@@ -17,8 +17,9 @@ const PDF_ZOOM_OUT_KEYS = new Set<string>([Key.alt("-"), Key.ctrl("-")]);
 const CELL_SIZE_TIMEOUT_MS = 250;
 const FRAME_MS = 16;
 const MAX_PROMPT_SHARE = 0.3;
+export const ARROW_SCROLL_PIXELS = 48;
 
-/** Marks the panel that PageUp/PageDown scroll. */
+/** Marks the panel that PageUp/PageDown and Up/Down scroll. */
 function selectedTitle(title: string, selected: boolean): string {
   return selected ? `● ${title}` : title;
 }
@@ -177,11 +178,19 @@ export class PaperUi {
       return;
     }
     if (matchesKey(data, Key.pageUp)) {
-      this.scrollPanel(-1);
+      this.scrollPanel(-this.halfPagePixels);
       return;
     }
     if (matchesKey(data, Key.pageDown)) {
-      this.scrollPanel(1);
+      this.scrollPanel(this.halfPagePixels);
+      return;
+    }
+    if (matchesKey(data, Key.up)) {
+      this.scrollPanel(-ARROW_SCROLL_PIXELS);
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.scrollPanel(ARROW_SCROLL_PIXELS);
       return;
     }
     // Some terminals still send ESC + printable Alt keys after Kitty negotiation.
@@ -218,14 +227,18 @@ export class PaperUi {
     this.renderRight();
   }
 
-  private scrollPanel(direction: number): void {
-    if (this.conversationSelected) this.scrollConversation(direction);
-    else this.scrollPdf(direction);
+  private get halfPagePixels(): number {
+    return Math.max(1, Math.floor(this.dimensions.contentRows * this.cellHeight / 2));
   }
 
-  private scrollPdf(direction: number): void {
-    const amount = Math.max(1, Math.floor(this.dimensions.contentRows * this.cellHeight / 2));
-    if (this.pdf.scroll(direction * amount, this.dimensions.contentRows * this.cellHeight)) this.rerenderPdf();
+  /** Scrolls the selected panel; positive pixels move toward the end. */
+  private scrollPanel(pixels: number): void {
+    if (this.conversationSelected) this.scrollConversation(pixels);
+    else this.scrollPdf(pixels);
+  }
+
+  private scrollPdf(pixels: number): void {
+    if (this.pdf.scroll(pixels, this.dimensions.contentRows * this.cellHeight)) this.rerenderPdf();
   }
 
   private changeZoom(direction: number): void {
@@ -243,10 +256,10 @@ export class PaperUi {
     void this.refreshImage();
   }
 
-  private scrollConversation(direction: number): void {
-    const height = this.dimensions.contentRows;
-    const max = Math.max(0, this.conversationLines().length - height);
-    this.conversationOffset = Math.max(0, Math.min(max, this.conversationOffset - direction * Math.floor(height / 2)));
+  private scrollConversation(pixels: number): void {
+    const rows = Math.sign(pixels) * Math.max(1, Math.round(Math.abs(pixels) / this.cellHeight));
+    const max = Math.max(0, this.conversationLines().length - this.dimensions.contentRows);
+    this.conversationOffset = Math.max(0, Math.min(max, this.conversationOffset - rows));
     this.renderRight();
   }
 

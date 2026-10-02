@@ -9,6 +9,7 @@ Model and thinking choices are saved for pi-paper.
 Keybindings
 Tab — Switch the selected panel (PDF or conversation, marked ●)
 PgUp / PgDn — Scroll the selected panel
+↑/↓ — Scroll the selected panel a little
 Alt++ / Alt+= / Alt+- — Zoom the PDF (50–250%)
 Ctrl++ / Ctrl+= / Ctrl+- — Zoom aliases if the terminal passes them through
 Enter — Submit a question or command
