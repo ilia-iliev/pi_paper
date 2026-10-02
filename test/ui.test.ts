@@ -14,6 +14,8 @@ interface UiHarness {
   renderRight(): void;
   renderPrompt(): void;
   conversationLines(): string[];
+  visibleConversation(): string[];
+  scheduleRight(): void;
   refreshImage(): Promise<void>;
   input: Input;
   picker?: SelectionPicker;
@@ -283,7 +285,7 @@ test("/help lists commands and keybindings locally without an agent or rendered 
   assert.equal(ui.messages[0].text, "Keep this");
   assert.equal(ui.messages.at(-1)?.role, "App");
   const help = ui.messages.at(-1)!.text;
-  for (const entry of ["/help", "/new", "/model", "/thinking", "/clear", "PgUp", "PgDn", "Ctrl+PgUp", "Ctrl+PgDn", "Alt", "Ctrl", "Enter", "Esc", "Ctrl+C", "Home", "End", "Ctrl+A", "Ctrl+E", "Backspace", "Delete", "↑/↓", "←/→"]) {
+  for (const entry of ["/help", "/new", "/model", "/thinking", "/clear", "PgUp", "PgDn", "Tab", "Alt", "Ctrl", "Enter", "Esc", "Ctrl+C", "Home", "End", "Ctrl+A", "Ctrl+E", "Backspace", "Delete", "↑/↓", "←/→"]) {
     assert.ok(help.includes(entry), `Missing help entry: ${entry}`);
   }
   assert.equal(render.mock.callCount(), 1);
@@ -421,4 +423,48 @@ test("long questions wrap onto more prompt rows instead of scrolling sideways", 
   assert.equal(text, question);
   assert.equal(rows.at(-1)![0], 20);
   assert.match(output, /\x1b\[19;15H\x1b\[\?25h$/);
+});
+
+test("streaming keeps a scrolled-up conversation where the reader left it", (t) => {
+  const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness;
+  t.mock.method(ui.terminal, "write", () => {});
+  t.mock.method(ui, "scheduleRight", () => {});
+  const message = { role: "Agent", text: Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n\n") };
+  ui.messages.push(message);
+  ui.handleInput("\t");
+  ui.handleInput("\x1b[5~");
+  const before = ui.visibleConversation();
+
+  (ui.agent as unknown as { events: { onDelta(delta: string): void } }).events.onDelta("\n\nmore\n\nand more");
+
+  assert.deepEqual(ui.visibleConversation(), before);
+});
+
+test("Tab moves PageUp/PageDown between the paper and the conversation", (t) => {
+  const pdf = new PdfDocument("unused", { pages: 2, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness;
+  let output = "";
+  t.mock.method(ui.terminal, "write", (data: string) => { output += data; });
+  t.mock.method(ui, "refreshImage", async () => {});
+  t.mock.method(ui.state, "savePosition", async () => {});
+  ui.messages.push({ role: "Agent", text: Array.from({ length: 200 }, (_, i) => `line ${i}`).join("\n\n") });
+  const latest = ui.visibleConversation();
+
+  ui.handleInput("\x1b[6~");
+  const scrolled = pdf.position.y;
+  assert.ok(scrolled > 0);
+  assert.deepEqual(ui.visibleConversation(), latest);
+
+  output = "";
+  ui.handleInput("\t");
+  assert.match(stripVTControlCharacters(output), /● Conversation/);
+  ui.handleInput("\x1b[5~");
+  assert.notDeepEqual(ui.visibleConversation(), latest);
+  assert.equal(pdf.position.y, scrolled);
+  assert.equal(ui.input.getValue(), "");
+
+  ui.handleInput("\t");
+  ui.handleInput("\x1b[5~");
+  assert.ok(pdf.position.y < scrolled);
 });

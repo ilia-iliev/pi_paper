@@ -46,8 +46,8 @@ This installs dependencies, rebuilds, and reinstalls the checkout the command po
 
 | Key | Action |
 |---|---|
-| `PageUp` / `PageDown` | Move through the PDF by half a viewport |
-| `Ctrl+PageUp` / `Ctrl+PageDown` | Scroll the conversation |
+| `Tab` | Switch the selected panel (PDF or conversation, marked `●`) |
+| `PageUp` / `PageDown` | Scroll the selected panel by half a viewport |
 | `Alt++` (or `Alt+=`) / `Alt+-` | Change PDF zoom in 25% steps (50–250%) |
 | `Enter` | Ask about the visible section |
 | `/model` | Open a searchable picker of authenticated vision models |

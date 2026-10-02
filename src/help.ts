@@ -7,8 +7,8 @@ export const HELP_TEXT = `Commands
 Model and thinking choices are saved for pi-paper.
 
 Keybindings
-PgUp / PgDn — Move through the PDF
-Ctrl+PgUp / Ctrl+PgDn — Scroll the conversation
+Tab — Switch the selected panel (PDF or conversation, marked ●)
+PgUp / PgDn — Scroll the selected panel
 Alt++ / Alt+= / Alt+- — Zoom the PDF (50–250%)
 Ctrl++ / Ctrl+= / Ctrl+- — Zoom aliases if the terminal passes them through
 Enter — Submit a question or command

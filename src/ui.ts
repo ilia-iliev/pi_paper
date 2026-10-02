@@ -18,6 +18,11 @@ const CELL_SIZE_TIMEOUT_MS = 250;
 const FRAME_MS = 16;
 const MAX_PROMPT_SHARE = 0.3;
 
+/** Marks the panel that PageUp/PageDown scroll. */
+function selectedTitle(title: string, selected: boolean): string {
+  return selected ? `● ${title}` : title;
+}
+
 export class PaperUi {
   private readonly terminal = new ProcessTerminal();
   private readonly agent: PaperAgent;
@@ -37,6 +42,8 @@ export class PaperUi {
   private cellWidth = 8;
   private cellHeight = 16;
   private conversationOffset = 0;
+  private conversationSelected = false;
+  private conversationLength = 0;
   private promptRows = 1;
   private busy = false;
   private agentReady = false;
@@ -56,7 +63,6 @@ export class PaperUi {
       onDelta: (delta) => {
         const message = this.messages.at(-1);
         if (message?.role === "Agent") message.text += delta;
-        this.conversationOffset = 0;
         this.scheduleRight();
       },
       onChange: () => this.scheduleRight(),
@@ -166,20 +172,16 @@ export class PaperUi {
       this.agent.abort();
       return;
     }
-    if (matchesKey(data, Key.ctrl("pageUp"))) {
-      this.scrollConversation(-1);
-      return;
-    }
-    if (matchesKey(data, Key.ctrl("pageDown"))) {
-      this.scrollConversation(1);
+    if (matchesKey(data, Key.tab)) {
+      this.togglePanel();
       return;
     }
     if (matchesKey(data, Key.pageUp)) {
-      this.scrollPdf(-1);
+      this.scrollPanel(-1);
       return;
     }
     if (matchesKey(data, Key.pageDown)) {
-      this.scrollPdf(1);
+      this.scrollPanel(1);
       return;
     }
     // Some terminals still send ESC + printable Alt keys after Kitty negotiation.
@@ -205,6 +207,17 @@ export class PaperUi {
   private clearPrompt(): void {
     this.input.setValue("");
     if (!this.fitPrompt()) this.renderPrompt();
+  }
+
+  private togglePanel(): void {
+    this.conversationSelected = !this.conversationSelected;
+    this.terminal.write(leftTitleFrame(this.dimensions, this.pdfTitle));
+    this.renderRight();
+  }
+
+  private scrollPanel(direction: number): void {
+    if (this.conversationSelected) this.scrollConversation(direction);
+    else this.scrollPdf(direction);
   }
 
   private scrollPdf(direction: number): void {
@@ -450,7 +463,7 @@ export class PaperUi {
   }
 
   private get rightTitle(): string {
-    return this.picker ? (this.selectionCommand === "/model" ? "Model" : "Thinking Level") : "Conversation";
+    return this.picker ? (this.selectionCommand === "/model" ? "Model" : "Thinking Level") : selectedTitle("Conversation", this.conversationSelected);
   }
 
   private rightLines(): string[] {
@@ -465,13 +478,20 @@ export class PaperUi {
   private visibleConversation(): string[] {
     const height = this.dimensions.contentRows;
     const lines = this.conversationLines();
+    this.anchorConversation(lines.length);
     const end = Math.max(0, lines.length - this.conversationOffset);
     const start = Math.max(0, end - height);
     return lines.slice(start, end);
   }
 
+  /** Keeps a scrolled-up view in place while lines are appended below it. */
+  private anchorConversation(length: number): void {
+    if (this.conversationOffset > 0) this.conversationOffset = Math.max(0, this.conversationOffset + length - this.conversationLength);
+    this.conversationLength = length;
+  }
+
   private get pdfTitle(): string {
-    return pdfTitle(this.dimensions, this.title, this.pdf.zoom, this.pdf.page, this.pdf.metadata.pages);
+    return selectedTitle(pdfTitle(this.dimensions, this.title, this.pdf.zoom, this.pdf.page, this.pdf.metadata.pages), !this.conversationSelected);
   }
 
   private imageFrame(): string {
