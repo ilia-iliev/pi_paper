@@ -32,7 +32,7 @@ function paperState(sessionPath: string): PaperState {
   return { sessionPath, savePosition: async () => {} } as unknown as PaperState;
 }
 
-const image: RenderedSection = { sixel: "new", leftCells: 0, png: () => "new-image" };
+const image: RenderedSection = { sixel: "new", leftCells: 0, width: 1, height: 1, png: () => "new-image" };
 
 function fixture(t: TestContext) {
   const oldPdf = new PdfDocument("old.pdf", { pages: 3, widthPoints: 600, heightPoints: 800 });
@@ -49,7 +49,6 @@ function fixture(t: TestContext) {
   const setTitle = t.mock.method(ui.terminal, "setTitle", () => {});
   const open = t.mock.method(library, "open", async () => paper);
   const remember = t.mock.method(library, "remember", async () => {});
-  const release = t.mock.method(library, "release", async () => {});
   const reset = t.mock.method(ui.agent, "reset", async () => {});
   const agentOpen = t.mock.method(ui.agent, "open", async () => {});
   const select = t.mock.method(ui.agent, "select", async () => "Configured");
@@ -60,7 +59,7 @@ function fixture(t: TestContext) {
   ui.agentReady = true;
   ui.image = { ...image, png: () => "old-image" };
   ui.imageCurrent = true;
-  return { ui, library, oldPdf, paper, open, remember, release, reset, agentOpen, select, ask, setTitle };
+  return { ui, library, oldPdf, paper, open, remember, reset, agentOpen, select, ask, setTitle };
 }
 
 for (const input of ['/new "Attention Is All You Need"', "/new Attention Is All You Need", "/new 'Attention Is All You Need'"]) {
@@ -82,7 +81,6 @@ for (const input of ['/new "Attention Is All You Need"', "/new Attention Is All 
     assert.equal(f.select.mock.callCount(), 0);
     assert.equal(f.ask.mock.callCount(), 0);
     assert.equal(f.remember.mock.calls[0].arguments[0], f.paper);
-    assert.equal(f.release.mock.calls[0].arguments[0], f.oldPdf);
     assert.equal(f.setTitle.mock.calls[0].arguments[0], "pi paper — New Paper");
     assert.equal(f.ui.busy, false);
     assert.equal(f.ui.agentReady, true);
@@ -120,7 +118,6 @@ for (const failure of ["open", "render", "remember"] as const) {
     assert.equal(f.agentOpen.mock.callCount(), 0);
     assert.equal(f.ui.busy, false);
     if (failure === "render") assert.equal(f.remember.mock.callCount(), 0);
-    if (failure !== "open") assert.equal(f.release.mock.calls[0].arguments[0], f.paper.pdf);
   });
 }
 
@@ -150,7 +147,7 @@ test("a render from the previous paper cannot overwrite the new image", async (t
   assert.equal(f.ui.image?.png(), "new-image");
 });
 
-test("closing during lookup releases the pending paper without changing history or restarting", async (t) => {
+test("closing during lookup keeps the old paper without changing history or restarting", async (t) => {
   const f = fixture(t);
   let finish!: (value: typeof f.paper) => void;
   t.mock.method(f.library, "open", () => new Promise<typeof f.paper>((resolve) => { finish = resolve; }));
@@ -162,7 +159,6 @@ test("closing during lookup releases the pending paper without changing history 
   assert.equal(f.ui.pdf, f.oldPdf);
   assert.equal(f.agentOpen.mock.callCount(), 0);
   assert.equal(f.remember.mock.callCount(), 0);
-  assert.equal(f.release.mock.calls[0].arguments[0], f.paper.pdf);
 });
 
 test("the first question after /new uses only the new PDF image and location", async (t) => {

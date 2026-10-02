@@ -29,19 +29,17 @@ async function main(): Promise<void> {
   }
 
   const papers = new PaperLibrary();
-  let ui: PaperUi | undefined;
+  const paper = await papers.open(argument, (source) => {
+    process.stderr.write(`Downloading ${source.label} (${source.url})…\n`);
+  });
+  const ui = new PaperUi(paper, papers);
+  const stop = () => ui.stop();
+  process.once("SIGTERM", stop);
+  process.once("SIGHUP", stop);
   try {
-    const paper = await papers.open(argument, (source) => {
-      process.stderr.write(`Downloading ${source.label} (${source.url})…\n`);
-    });
-    ui = new PaperUi(paper, papers);
-    const stop = () => ui?.stop();
-    process.once("SIGTERM", stop);
-    process.once("SIGHUP", stop);
     await ui.run(() => papers.remember(paper));
   } finally {
-    ui?.stop();
-    await papers.dispose();
+    ui.stop();
   }
 }
 

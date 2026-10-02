@@ -1,5 +1,4 @@
 import { createWriteStream, existsSync } from "node:fs";
-import { copyFile, stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { basename, resolve } from "node:path";
 import { httpGet } from "./http.js";
@@ -50,15 +49,7 @@ export async function resolvePaperSource(input: string): Promise<PaperSource> {
   return { ...parsePaperSource(result.url), label: result.title };
 }
 
-export async function acquirePaper(source: PaperSource, destination: string): Promise<void> {
-  if (source.localPath) {
-    const info = await stat(source.localPath);
-    if (!info.isFile()) throw new Error("The local PDF path is not a file");
-    if (info.size > MAX_PDF_BYTES) throw tooLarge();
-    await copyFile(source.localPath, destination);
-    return;
-  }
-
+export async function downloadPaper(source: PaperSource, destination: string): Promise<void> {
   const response = await httpGet(source.url!);
   if (!response.ok || !response.body) {
     throw new Error(`Could not download paper (HTTP ${response.status})`);

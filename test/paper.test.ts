@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { type TestContext } from "node:test";
@@ -28,25 +27,18 @@ async function fixture(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), "pi-paper-library-test-"));
   const history = new PaperHistory(join(directory, "state"));
   const library = new PaperLibrary(history, join(directory, "cache"));
-  t.after(async () => {
-    await library.dispose();
-    await rm(directory, { recursive: true, force: true });
-  });
+  t.after(() => rm(directory, { recursive: true, force: true }));
   return { directory, history, library };
 }
 
-test("shared loader validates local PDFs, resets position and cleans up on release", async (t) => {
+test("shared loader opens local PDFs in place and resets position", async (t) => {
   const { directory, library } = await fixture(t);
   const path = join(directory, "local.pdf");
   await writeFile(path, minimalPdf());
   const paper = await library.open(path);
-  assert.notEqual(paper.pdf.path, path);
-  assert.equal(await readFile(paper.pdf.path, "utf8"), minimalPdf());
+  assert.equal(paper.pdf.path, path);
   assert.deepEqual(paper.pdf.metadata, { pages: 1, widthPoints: 600, heightPoints: 800 });
   assert.deepEqual([paper.pdf.page, paper.pdf.y, paper.pdf.zoom], [1, 0, 100]);
-  await library.release(paper.pdf);
-  assert.equal(existsSync(paper.pdf.path), false);
-  assert.equal(existsSync(path), true);
 });
 
 test("title lookup and downloading use the same loader; history changes only when remembered", async (t) => {
@@ -67,8 +59,6 @@ test("title lookup and downloading use the same loader; history changes only whe
   assert.equal((await history.source()).label, "1706.03762");
   await library.remember(paper);
   assert.equal((await history.source()).url, paper.source.url);
-  await library.dispose();
-  assert.equal(existsSync(paper.pdf.path), false);
 });
 
 test("downloaded PDFs are cached and reused; a missing cache downloads again", async (t) => {
@@ -77,29 +67,26 @@ test("downloaded PDFs are cached and reused; a missing cache downloads again", a
   const downloads: string[] = [];
   const onDownload = (source: { label: string }) => downloads.push(source.label);
   const library = new PaperLibrary(history, join(directory, "cache"));
-  await library.open("2401.12345", onDownload);
-  await library.open("2401.12345", onDownload);
-  await library.dispose();
+  const first = await library.open("2401.12345", onDownload);
+  const second = await library.open("2401.12345", onDownload);
   assert.equal(fetch.mock.callCount(), 1);
   assert.deepEqual(downloads, ["2401.12345"]);
+  assert.equal(second.pdf.path, first.pdf.path);
+  assert.equal(await readFile(first.pdf.path, "utf8"), minimalPdf());
   const restarted = new PaperLibrary(history, join(directory, "empty-cache"));
-  const paper = await restarted.open("2401.12345", onDownload);
-  await restarted.dispose();
+  await restarted.open("2401.12345", onDownload);
   assert.equal(fetch.mock.callCount(), 2);
   assert.deepEqual(downloads, ["2401.12345", "2401.12345"]);
-  assert.equal(existsSync(paper.pdf.path), false);
 });
 
 for (const body of ["<html>not a PDF</html>", "%PDF-invalid"]) {
-  test(`invalid download does not change history and releases its temporary directory: ${body}`, async (t) => {
-    const { history, library } = await fixture(t);
+  test(`invalid download does not change history and leaves nothing in the cache: ${body}`, async (t) => {
+    const { directory, history, library } = await fixture(t);
     const old = await history.source();
     await history.remember(old);
     t.mock.method(globalThis, "fetch", async () => new Response(body));
-    const release = t.mock.method(library as unknown as { remove(path: string): Promise<void> }, "remove");
     await assert.rejects(library.open("2401.12345"));
-    assert.equal(release.mock.callCount(), 1);
-    assert.equal(existsSync(release.mock.calls[0].arguments[0]), false);
+    assert.deepEqual(await readdir(join(directory, "cache")), []);
     assert.deepEqual(await history.source(), old);
   });
 }

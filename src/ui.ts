@@ -411,32 +411,26 @@ export class PaperUi {
     this.busy = true;
     this.notify(`Loading ${argument}…`);
     this.renderRight();
-    let paper: LoadedPaper | undefined;
-    let committed = false;
     try {
-      paper = await this.papers.open(argument);
+      const paper = await this.papers.open(argument);
       if (this.stopped) return;
       const image = await this.renderPdf(paper.pdf);
       if (this.stopped) return;
       await this.papers.remember(paper);
       if (this.stopped) return;
-      const previousPdf = this.pdf;
       this.renderGeneration++;
       this.pdf = paper.pdf;
       this.title = paper.source.label;
       this.state = paper.state;
       this.image = image;
       this.imageCurrent = true;
-      committed = true;
       this.terminal.setTitle(`pi paper — ${this.title}`);
       this.clearConversation();
       await this.startConversation(() => this.agent.open(this.state.sessionPath));
-      await this.papers.release(previousPdf);
     } catch (error) {
       if (this.stopped) return;
       this.notify(this.errorMessage(error));
     } finally {
-      if (paper && !committed) await this.papers.release(paper.pdf);
       this.busy = false;
       this.renderFull();
     }
