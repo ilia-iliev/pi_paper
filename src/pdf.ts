@@ -20,6 +20,8 @@ export interface PdfPosition {
 export interface RenderedSection {
   sixel: string;
   leftCells: number;
+  width: number;
+  height: number;
   /** Base64 PNG, encoded on demand: only questions need it. */
   png(): string;
 }
@@ -103,6 +105,8 @@ export class PdfDocument {
     ]));
     return {
       sixel: encodeSixel(raster),
+      width: raster.width,
+      height: raster.height,
       leftCells: Math.max(0, Math.floor((viewportWidth - raster.width) / (2 * cellWidth))),
       png: () => encodePng(raster).toString("base64"),
     };

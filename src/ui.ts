@@ -223,8 +223,7 @@ export class PaperUi {
 
   private togglePanel(): void {
     this.conversationSelected = !this.conversationSelected;
-    this.terminal.write(leftTitleFrame(this.dimensions, this.pdfTitle));
-    this.renderRight();
+    this.renderRight(leftTitleFrame(this.dimensions, this.pdfTitle));
   }
 
   private get halfPagePixels(): number {
@@ -252,7 +251,7 @@ export class PaperUi {
       this.renderRight();
     });
     this.imageCurrent = false;
-    this.terminal.write(leftTitleFrame(this.dimensions, this.pdfTitle) + this.promptFrame());
+    this.write(leftTitleFrame(this.dimensions, this.pdfTitle) + this.promptFrame());
     void this.refreshImage();
   }
 
@@ -288,15 +287,27 @@ export class PaperUi {
       try {
         const image = await this.renderPdf(this.pdf);
         if (generation !== this.renderGeneration || this.stopped) continue;
+        const previous = this.image;
         this.image = image;
         this.imageCurrent = !this.imageStale;
+        this.renderImage(previous);
       } catch (error) {
         if (generation !== this.renderGeneration || this.stopped) continue;
         this.imageCurrent = false;
         this.notify(this.errorMessage(error));
+        this.renderFull();
       }
-      this.renderFull();
     }
+  }
+
+  /** An image with the previous one's footprint covers it exactly; anything else needs the panel cleared. */
+  private renderImage(previous?: RenderedSection): void {
+    const image = this.image!;
+    if (previous?.width !== image.width || previous.height !== image.height || previous.leftCells !== image.leftCells) {
+      this.renderFull();
+      return;
+    }
+    this.write(leftTitleFrame(this.dimensions, this.pdfTitle) + this.imageFrame() + this.promptFrame());
   }
 
   private async submit(): Promise<void> {
@@ -527,7 +538,7 @@ export class PaperUi {
 
   private renderFull(): void {
     if (this.stopped) return;
-    this.terminal.write(fullFrame(this.dimensions, this.pdfTitle, this.rightTitle, this.rightLines()) + this.imageFrame() + this.promptFrame());
+    this.write(fullFrame(this.dimensions, this.pdfTitle, this.rightTitle, this.rightLines()) + this.imageFrame() + this.promptFrame());
   }
 
   /** Coalesces streaming updates into at most one conversation redraw per frame. */
@@ -538,14 +549,19 @@ export class PaperUi {
     }, FRAME_MS);
   }
 
-  private renderRight(): void {
+  private renderRight(prefix = ""): void {
     if (this.stopped) return;
-    this.terminal.write(rightFrame(this.dimensions, this.rightTitle, this.rightLines()) + this.promptFrame());
+    this.write(prefix + rightFrame(this.dimensions, this.rightTitle, this.rightLines()) + this.promptFrame());
   }
 
   private renderPrompt(): void {
     if (this.stopped) return;
-    this.terminal.write(this.promptFrame());
+    this.write(this.promptFrame());
+  }
+
+  /** Draws each frame atomically, so the terminal never shows it half-painted. */
+  private write(frame: string): void {
+    this.terminal.write(`${ESC}[?2026h${frame}${ESC}[?2026l`);
   }
 
   private errorMessage(error: unknown): string {

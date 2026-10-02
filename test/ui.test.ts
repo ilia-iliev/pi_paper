@@ -422,7 +422,7 @@ test("long questions wrap onto more prompt rows instead of scrolling sideways", 
   const text = rows.filter(([, line]) => line.startsWith("│")).map(([, line]) => line.slice(1, -1).replace(/^ [> ] /, "").trimEnd()).join("");
   assert.equal(text, question);
   assert.equal(rows.at(-1)![0], 20);
-  assert.match(output, /\x1b\[19;15H\x1b\[\?25h$/);
+  assert.match(output, /\x1b\[19;15H\x1b\[\?25h\x1b\[\?2026l$/);
 });
 
 test("streaming keeps a scrolled-up conversation where the reader left it", (t) => {
@@ -509,4 +509,24 @@ test("Up/Down scroll the selected panel by a fixed number of pixels", (t) => {
   ui.handleInput("\x1b[B");
   assert.equal(ui.conversationOffset, 0);
   assert.equal(pdf.position.y, ARROW_SCROLL_PIXELS);
+});
+
+test("re-rendering the PDF at the same size redraws only the image, in one synchronized update", async (t) => {
+  const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness;
+  const writes: string[] = [];
+  Object.defineProperties(ui.terminal, { columns: { value: 140 }, rows: { value: 30 } });
+  t.mock.method(ui.terminal, "write", (data: string) => { writes.push(data); });
+  const section = (sixel: string) => ({ sixel, leftCells: 2, width: 100, height: 200, png: () => "" });
+  const render = t.mock.method(pdf, "render", async () => section("first"));
+  await ui.refreshImage();
+  render.mock.mockImplementation(async () => section("second"));
+  writes.length = 0;
+  await ui.refreshImage();
+  assert.equal(writes.length, 1);
+  const [frame] = writes;
+  assert.ok(frame!.startsWith("\x1b[?2026h") && frame!.endsWith("\x1b[?2026l"));
+  assert.ok(frame!.includes("second"));
+  assert.ok(!frame!.includes("Conversation"), "right panel redrawn");
+  assert.ok(!frame!.includes(`│${" ".repeat(87)}`), "PDF panel blanked");
 });
