@@ -43,9 +43,14 @@ function borderSection(title: string, width: number): string {
   return label + "─".repeat(Math.max(0, width - [...label].length));
 }
 
+/** Pads `text` to `width`; truncateToWidth is ~50x slower than measuring, so only overlong lines pay for it. */
+function fit(text: string, width: number): string {
+  const visible = visibleWidth(text);
+  return visible > width ? truncateToWidth(text, width, "", true) : text + " ".repeat(width - visible);
+}
+
 function rightCell(d: Layout, text: string): string {
-  const width = d.rightInner - 1;
-  return `${color.dim}│${color.reset} ${truncateToWidth(text, width, "", true)}${color.dim}│${color.reset}`;
+  return `${color.dim}│${color.reset} ${fit(text, d.rightInner - 1)}${color.dim}│${color.reset}`;
 }
 
 export function pdfTitle(d: Layout, title: string, zoom: number, page: number, pages: number): string {

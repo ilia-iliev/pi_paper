@@ -3,6 +3,8 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { stripVTControlCharacters } from "node:util";
+import { layout, rightFrame } from "../src/frame.js";
 import { parsePaperSource } from "../src/paper-source.js";
 import { encodePng } from "../src/png.js";
 import { PdfDocument } from "../src/pdf.js";
@@ -63,4 +65,12 @@ test("link annotation borders are not drawn on the page", async () => {
   const pdf = new PdfDocument(path, { pages: 1, widthPoints: 100, heightPoints: 100 });
   const { sixel } = await pdf.render(100, 100, 10);
   assert.ok(!sixel.includes("#12;2;0;100;0"));
+});
+
+test("conversation rows are padded to the panel and overlong rows are cut at its border", () => {
+  const d = layout(100, 20, 1);
+  const width = d.rightInner - 1;
+  const rows = rightFrame(d, "Conversation", ["short", "\x1b[1mbold\x1b[22m", "x".repeat(width + 10)])
+    .split(/\x1b\[\d+;\d+H/).slice(2, 5).map((row) => stripVTControlCharacters(row));
+  assert.deepEqual(rows, [`│ ${"short".padEnd(width)}│`, `│ ${"bold".padEnd(width)}│`, `│ ${"x".repeat(width)}│`]);
 });

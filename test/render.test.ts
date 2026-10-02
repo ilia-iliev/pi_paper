@@ -19,7 +19,7 @@ interface Harness {
   terminal: { write(data: string): void };
 }
 
-const image: RenderedSection = { sixel: "SIXEL", leftCells: 0, png: () => "" };
+const image: RenderedSection = { sixel: "SIXEL", leftCells: 0, width: 1, height: 1, png: () => "" };
 
 function fixture(t: TestContext) {
   const pdf = new PdfDocument("unused", { pages: 3, widthPoints: 600, heightPoints: 800 });

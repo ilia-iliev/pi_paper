@@ -57,7 +57,7 @@ async function runPaper(args: string[], savedPaper?: string, searchFeed?: string
       join(sourceRoot, "src/cli.ts"), ...args,
     ], {
       cwd: tmpdir(),
-      env: { ...process.env, XDG_STATE_HOME: work },
+      env: { ...process.env, XDG_STATE_HOME: work, TMPDIR: work },
       encoding: "utf8",
     });
     return { ...result, savedPaper: savedPaper ? await readFile(historyPath, "utf8") : undefined };
