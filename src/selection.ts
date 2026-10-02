@@ -31,11 +31,24 @@ export interface WrappedInput {
 
 const segmenter = new Intl.Segmenter();
 
-/** Wraps the input value to `width`, showing at most `maxRows` rows around the cursor. */
+/** The cursor's string index in the input value. */
+export function inputCursor(input: Input): number {
+  // Rendered wide enough to never scroll, the marker sits at the cursor's string index.
+  return input.render(visibleWidth(input.getValue()) + 2)[0].indexOf(CURSOR_MARKER);
+}
+
+/** Inserts a newline at the cursor, which Input cannot type itself. */
+export function insertNewline(input: Input): void {
+  const value = input.getValue();
+  const cursor = inputCursor(input);
+  input.setValue(`${value.slice(0, cursor)}\n${value.slice(cursor)}`);
+  input.handleInput("\x1b[C");
+}
+
+/** Wraps the input value to `width`, starting a row at each newline and showing at most `maxRows` rows around the cursor. */
 export function wrapInput(input: Input, width: number, maxRows: number): WrappedInput {
   const value = input.getValue();
-  // Rendered wide enough to never scroll, the marker sits at the cursor's string index.
-  const cursor = input.render(visibleWidth(value) + 2)[0].indexOf(CURSOR_MARKER);
+  const cursor = inputCursor(input);
   const lines = [""];
   let lineWidth = 0;
   let row = 0;
@@ -47,6 +60,13 @@ export function wrapInput(input: Input, width: number, maxRows: number): Wrapped
     lineWidth = 0;
   };
   for (const { segment } of segmenter.segment(value)) {
+    if (segment === "\n") {
+      if (index === cursor) [row, col] = [lines.length - 1, lineWidth];
+      lines.push("");
+      lineWidth = 0;
+      index += 1;
+      continue;
+    }
     const segmentWidth = visibleWidth(segment);
     fit(segmentWidth);
     if (index === cursor) [row, col] = [lines.length - 1, lineWidth];

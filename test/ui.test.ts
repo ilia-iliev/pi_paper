@@ -468,3 +468,23 @@ test("Tab moves PageUp/PageDown between the paper and the conversation", (t) => 
   ui.handleInput("\x1b[5~");
   assert.ok(pdf.position.y < scrolled);
 });
+
+test("Ctrl+J and Shift+Enter insert newlines that start new prompt rows", (t) => {
+  const pdf = new PdfDocument("unused", { pages: 1, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness;
+  Object.defineProperties(ui.terminal, { columns: { value: 60 }, rows: { value: 20 } });
+  let output = "";
+  t.mock.method(ui.terminal, "write", (data: string) => { output += data; });
+  t.mock.method(ui, "refreshImage", async () => {});
+  const submit = t.mock.method(ui, "submit", async () => {});
+  for (const data of ["a", "b", "\n", "c", "d", "\x1b[13;2u", "e"]) ui.handleInput(data);
+  assert.equal(ui.input.getValue(), "ab\ncd\ne");
+  assert.equal(submit.mock.callCount(), 0);
+  output = "";
+  ui.renderPrompt();
+  const rows = [...output.matchAll(/\x1b\[(\d+);1H([^\x1b]*(?:\x1b\[[0-9;]*m[^\x1b]*)*)/g)]
+    .map(([, , text]) => stripVTControlCharacters(text))
+    .filter((line) => line.startsWith("│"))
+    .map((line) => line.slice(1, -1).replace(/^ [> ] /, "").trimEnd());
+  assert.deepEqual(rows, ["ab", "cd", "e"]);
+});

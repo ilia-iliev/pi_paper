@@ -1,11 +1,11 @@
-import { Input, isKeyRelease, Key, matchesKey, parseKey, ProcessTerminal } from "@earendil-works/pi-tui";
+import { getKeybindings, Input, isKeyRelease, Key, matchesKey, parseKey, ProcessTerminal } from "@earendil-works/pi-tui";
 import { PaperAgent } from "./agent.js";
 import { ConversationRenderer, type ConversationMessage } from "./conversation.js";
 import { ESC, fullFrame, layout, leftTitleFrame, pdfTitle, promptFrame, rightFrame } from "./frame.js";
 import { PdfDocument, type RenderedSection } from "./pdf.js";
 import { PaperLibrary, type LoadedPaper } from "./paper.js";
 import type { PaperState } from "./paper-state.js";
-import { matchingItems, renderInputLine, SelectionPicker, wrapInput, type SelectionCommand, type SelectionOptions, type WrappedInput } from "./selection.js";
+import { insertNewline, matchingItems, renderInputLine, SelectionPicker, wrapInput, type SelectionCommand, type SelectionOptions, type WrappedInput } from "./selection.js";
 import { HELP_TEXT } from "./help.js";
 
 const PDF_ZOOM_IN_KEYS = new Set<string>([
@@ -196,11 +196,14 @@ export class PaperUi {
       this.changeZoom(-1);
       return;
     }
-    if (matchesKey(data, Key.enter)) {
+    if (getKeybindings().matches(data, "tui.input.newLine")) {
+      insertNewline(this.input);
+    } else if (matchesKey(data, Key.enter)) {
       void this.submit();
       return;
+    } else {
+      this.input.handleInput(data);
     }
-    this.input.handleInput(data);
     if (!this.fitPrompt()) this.renderPrompt();
   }
 
