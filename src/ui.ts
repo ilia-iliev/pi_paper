@@ -36,6 +36,8 @@ export class PaperUi {
   private imageCurrent = false;
   private renderGeneration = 0;
   private rendering?: Promise<void>;
+  /** A question submitted before the visible section finished rendering. */
+  private pendingQuestion?: string;
   private imageStale = false;
   private cellSizeQuery?: Promise<void>;
   private cellSizeReceived?: () => void;
@@ -291,6 +293,7 @@ export class PaperUi {
         this.image = image;
         this.imageCurrent = !this.imageStale;
         this.renderImage(previous);
+        if (this.imageCurrent) this.askPending();
       } catch (error) {
         if (generation !== this.renderGeneration || this.stopped) continue;
         this.imageCurrent = false;
@@ -349,21 +352,28 @@ export class PaperUi {
       this.renderRight();
       return;
     }
-    if (!this.image || !this.imageCurrent) {
-      this.notify("Wait for the PDF section to finish rendering");
-      this.renderRight();
-      return;
-    }
 
     this.messages.push({ role: "You", text: question }, { role: "Agent", text: "" });
     this.conversationOffset = 0;
     this.busy = true;
     this.renderRight();
     this.renderPrompt();
+    if (this.image && this.imageCurrent) await this.ask(question);
+    else this.pendingQuestion = question;
+  }
+
+  private askPending(): void {
+    const question = this.pendingQuestion;
+    if (!question) return;
+    this.pendingQuestion = undefined;
+    void this.ask(question);
+  }
+
+  private async ask(question: string): Promise<void> {
     const location = Math.round(100 * this.pdf.y / Math.max(1, this.pdf.pageHeight));
     const context = `Visible section: page ${this.pdf.page} of ${this.pdf.metadata.pages}, about ${location}% down the page, zoom ${this.pdf.zoom}%.`;
     try {
-      await this.agent.ask(question, this.image.png(), context);
+      await this.agent.ask(question, this.image!.png(), context);
       if (!this.messages.at(-1)?.text) this.messages.at(-1)!.text = "No response was returned.";
     } catch (error) {
       const message = this.messages.at(-1);

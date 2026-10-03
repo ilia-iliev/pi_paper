@@ -202,3 +202,20 @@ test("/new shows the new paper's saved conversation", async (t) => {
   await f.ui.submit();
   assert.deepEqual(f.ui.messages, [{ role: "You", text: "Saved question" }, { role: "Agent", text: "Saved answer" }]);
 });
+
+test("a question asked while the section renders is sent once rendering completes", async (t) => {
+  const f = fixture(t);
+  let finish!: (value: RenderedSection) => void;
+  t.mock.method(f.oldPdf, "render", () => new Promise<RenderedSection>((resolve) => { finish = resolve; }));
+  f.ui.imageCurrent = false;
+  const rendering = f.ui.refreshImage();
+  f.ui.input.setValue("Explain this");
+  await f.ui.submit();
+  assert.equal(f.ask.mock.callCount(), 0);
+  assert.equal(f.ui.messages.at(-2)?.text, "Explain this");
+  finish({ ...image, png: () => "fresh-image" });
+  await rendering;
+  await new Promise(setImmediate);
+  assert.deepEqual(f.ask.mock.calls[0].arguments.slice(0, 2), ["Explain this", "fresh-image"]);
+  assert.equal(f.ui.busy, false);
+});
