@@ -6,7 +6,13 @@ const color = {
   reset: `${ESC}[0m`,
   dim: `${ESC}[2m`,
   cyan: `${ESC}[36m`,
+  white: `${ESC}[97m`,
 };
+
+/** The selected panel is outlined in white; the divider always belongs to it. */
+function border(selected: boolean): string {
+  return selected ? color.white : color.dim;
+}
 
 interface Layout {
   columns: number;
@@ -49,35 +55,55 @@ function fit(text: string, width: number): string {
   return visible > width ? truncateToWidth(text, width, "", true) : text + " ".repeat(width - visible);
 }
 
-function rightCell(d: Layout, text: string): string {
-  return `${color.dim}│${color.reset} ${fit(text, d.rightInner - 1)}${color.dim}│${color.reset}`;
+function rightCell(d: Layout, text: string, selected: boolean): string {
+  return `${color.white}│${color.reset} ${fit(text, d.rightInner - 1)}${border(selected)}│${color.reset}`;
+}
+
+function leftTop(d: Layout, title: string, selected: boolean): string {
+  return `${border(selected)}┌${borderSection(title, d.leftInner)}`;
+}
+
+function rightTop(d: Layout, title: string, selected: boolean): string {
+  return `${color.white}┬${border(selected)}${borderSection(title, d.rightInner)}┐${color.reset}`;
+}
+
+function leftBottom(d: Layout, selected: boolean): string {
+  return `${border(selected)}└${"─".repeat(d.leftInner)}`;
+}
+
+function rightBottom(d: Layout, selected: boolean): string {
+  return `${color.white}┴${border(selected)}${"─".repeat(d.rightInner)}┘${color.reset}`;
 }
 
 export function pdfTitle(d: Layout, title: string, zoom: number, page: number, pages: number): string {
   return `PDF · ${truncate(title, Math.max(4, d.leftInner - 28))} · ${zoom}% · ${page}/${pages}`;
 }
 
-export function leftTitleFrame(d: Layout, title: string): string {
-  return `${ESC}[?25l${ESC}[H${color.dim}┌${borderSection(title, d.leftInner)}${color.reset}`;
+/** Redraws the PDF panel's border without touching the image inside it. */
+export function leftFrame(d: Layout, title: string, selected: boolean): string {
+  let output = `${ESC}[?25l${ESC}[H${leftTop(d, title, selected)}`;
+  for (let row = 0; row < d.contentRows; row++) output += `${ESC}[${row + 2};1H│`;
+  return `${output}${ESC}[${d.mainHeight};1H${leftBottom(d, selected)}${color.reset}`;
 }
 
-export function fullFrame(d: Layout, leftTitle: string, rightTitle: string, right: string[]): string {
+export function fullFrame(d: Layout, leftTitle: string, rightTitle: string, right: string[], conversationSelected: boolean): string {
+  const left = border(!conversationSelected);
   const output: string[] = [`${ESC}[?25l${ESC}[H`];
-  output.push(`${color.dim}┌${borderSection(leftTitle, d.leftInner)}┬${borderSection(rightTitle, d.rightInner)}┐${color.reset}`);
+  output.push(leftTop(d, leftTitle, !conversationSelected) + rightTop(d, rightTitle, conversationSelected));
   for (let row = 0; row < d.contentRows; row++) {
-    output.push(`\r\n${color.dim}│${" ".repeat(d.leftInner)}${rightCell(d, right[row] ?? "")}`);
+    output.push(`\r\n${left}│${color.reset}${" ".repeat(d.leftInner)}${rightCell(d, right[row] ?? "", conversationSelected)}`);
   }
-  output.push(`\r\n${color.dim}└${"─".repeat(d.leftInner)}┴${"─".repeat(d.rightInner)}┘${color.reset}`);
+  output.push(`\r\n${leftBottom(d, !conversationSelected)}${rightBottom(d, conversationSelected)}`);
   return output.join("");
 }
 
-export function rightFrame(d: Layout, rightTitle: string, right: string[]): string {
+export function rightFrame(d: Layout, rightTitle: string, right: string[], selected: boolean): string {
   let output = `${ESC}[?25l`;
-  output += `${ESC}[1;${d.leftWidth}H${color.dim}┬${borderSection(rightTitle, d.rightInner)}┐${color.reset}`;
+  output += `${ESC}[1;${d.leftWidth}H${rightTop(d, rightTitle, selected)}`;
   for (let row = 0; row < d.contentRows; row++) {
-    output += `${ESC}[${row + 2};${d.leftWidth}H${rightCell(d, right[row] ?? "")}`;
+    output += `${ESC}[${row + 2};${d.leftWidth}H${rightCell(d, right[row] ?? "", selected)}`;
   }
-  output += `${ESC}[${d.mainHeight};${d.leftWidth}H${color.dim}┴${"─".repeat(d.rightInner)}┘${color.reset}`;
+  output += `${ESC}[${d.mainHeight};${d.leftWidth}H${rightBottom(d, selected)}`;
   return output;
 }
 

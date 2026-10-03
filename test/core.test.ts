@@ -70,7 +70,7 @@ test("link annotation borders are not drawn on the page", async () => {
 test("conversation rows are padded to the panel and overlong rows are cut at its border", () => {
   const d = layout(100, 20, 1);
   const width = d.rightInner - 1;
-  const rows = rightFrame(d, "Conversation", ["short", "\x1b[1mbold\x1b[22m", "x".repeat(width + 10)])
+  const rows = rightFrame(d, "Conversation", ["short", "\x1b[1mbold\x1b[22m", "x".repeat(width + 10)], true)
     .split(/\x1b\[\d+;\d+H/).slice(2, 5).map((row) => stripVTControlCharacters(row));
   assert.deepEqual(rows, [`│ ${"short".padEnd(width)}│`, `│ ${"bold".padEnd(width)}│`, `│ ${"x".repeat(width)}│`]);
 });

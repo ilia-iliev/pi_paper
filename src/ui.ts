@@ -1,7 +1,7 @@
 import { getKeybindings, Input, isKeyRelease, Key, matchesKey, parseKey, ProcessTerminal } from "@earendil-works/pi-tui";
 import { PaperAgent } from "./agent.js";
 import { ConversationRenderer, type ConversationMessage } from "./conversation.js";
-import { ESC, fullFrame, layout, leftTitleFrame, pdfTitle, promptFrame, rightFrame } from "./frame.js";
+import { ESC, fullFrame, layout, leftFrame, pdfTitle, promptFrame, rightFrame } from "./frame.js";
 import { PdfDocument, type RenderedSection } from "./pdf.js";
 import { PaperLibrary, type LoadedPaper } from "./paper.js";
 import type { PaperState } from "./paper-state.js";
@@ -225,7 +225,7 @@ export class PaperUi {
 
   private togglePanel(): void {
     this.conversationSelected = !this.conversationSelected;
-    this.renderRight(leftTitleFrame(this.dimensions, this.pdfTitle));
+    this.renderRight(leftFrame(this.dimensions, this.pdfTitle, !this.conversationSelected));
   }
 
   private get halfPagePixels(): number {
@@ -253,7 +253,7 @@ export class PaperUi {
       this.renderRight();
     });
     this.imageCurrent = false;
-    this.write(leftTitleFrame(this.dimensions, this.pdfTitle) + this.promptFrame());
+    this.write(leftFrame(this.dimensions, this.pdfTitle, !this.conversationSelected) + this.promptFrame());
     void this.refreshImage();
   }
 
@@ -310,7 +310,7 @@ export class PaperUi {
       this.renderFull();
       return;
     }
-    this.write(leftTitleFrame(this.dimensions, this.pdfTitle) + this.imageFrame() + this.promptFrame());
+    this.write(leftFrame(this.dimensions, this.pdfTitle, !this.conversationSelected) + this.imageFrame() + this.promptFrame());
   }
 
   private async submit(): Promise<void> {
@@ -542,7 +542,7 @@ export class PaperUi {
 
   private renderFull(): void {
     if (this.stopped) return;
-    this.write(fullFrame(this.dimensions, this.pdfTitle, this.rightTitle, this.rightLines()) + this.imageFrame() + this.promptFrame());
+    this.write(fullFrame(this.dimensions, this.pdfTitle, this.rightTitle, this.rightLines(), this.conversationSelected) + this.imageFrame() + this.promptFrame());
   }
 
   /** Coalesces streaming updates into at most one conversation redraw per frame. */
@@ -555,7 +555,7 @@ export class PaperUi {
 
   private renderRight(prefix = ""): void {
     if (this.stopped) return;
-    this.write(prefix + rightFrame(this.dimensions, this.rightTitle, this.rightLines()) + this.promptFrame());
+    this.write(prefix + rightFrame(this.dimensions, this.rightTitle, this.rightLines(), this.conversationSelected) + this.promptFrame());
   }
 
   private renderPrompt(): void {

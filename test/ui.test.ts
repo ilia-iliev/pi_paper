@@ -530,3 +530,22 @@ test("re-rendering the PDF at the same size redraws only the image, in one synch
   assert.ok(!frame!.includes("Conversation"), "right panel redrawn");
   assert.ok(!frame!.includes(`│${" ".repeat(87)}`), "PDF panel blanked");
 });
+
+test("the selected panel's border is drawn in white", (t) => {
+  const pdf = new PdfDocument("unused", { pages: 2, widthPoints: 600, heightPoints: 800 });
+  const ui = paperUi(pdf) as unknown as UiHarness;
+  let output = "";
+  t.mock.method(ui.terminal, "write", (data: string) => { output += data; });
+  const white = "\x1b[97m";
+  const dim = "\x1b[2m";
+
+  ui.renderFull();
+  assert.ok(output.includes(`${white}┌`) && output.includes(`${white}└`), "PDF border white");
+  assert.doesNotMatch(output, /\x1b\[97m[^\x1b]*┐/, "conversation border dim");
+
+  output = "";
+  ui.handleInput("\t");
+  assert.ok(output.includes(`${dim}┌`) && output.includes(`${dim}└`), "PDF border dimmed");
+  assert.match(output, /\x1b\[97m[^\x1b]*┐/, "conversation border white");
+  assert.match(output, /\x1b\[97m[^\x1b]*┘/, "conversation border white");
+});

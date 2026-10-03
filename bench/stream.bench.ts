@@ -12,7 +12,7 @@ const start = performance.now();
 for (const token of tokens) {
   messages[1]!.text += token;
   const lines = renderer.lines(messages, d.rightInner - 2);
-  rightFrame(d, "Conversation", lines.slice(-d.contentRows));
+  rightFrame(d, "Conversation", lines.slice(-d.contentRows), true);
 }
 const total = performance.now() - start;
 console.log(`${tokens.length} deltas, ${reply.length} chars: ${total.toFixed(0)} ms total, ${(total / tokens.length).toFixed(2)} ms/delta, last ${(() => { const s = performance.now(); renderer.lines(messages, d.rightInner - 2); messages[1]!.text += "x"; renderer.lines(messages, d.rightInner - 2); return (performance.now() - s).toFixed(1); })()} ms`);
